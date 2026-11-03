@@ -18,7 +18,7 @@ Open the printed address, normally http://127.0.0.1:5173. Demo changes persist i
 
 ## Included
 
-- Responsive React dashboard with server cards, player history, RCON availability, activity filters, server search, and settings.
+- Responsive React dashboard with readable server cards, player history, RCON availability, activity filters, server search, and settings. Neutral light mode and a muted dark mode share a persistent appearance toggle in the header.
 - Separate per-server ASA/ASE selection; a workspace can manage both games using shared slots.
 - Source RCON: connection checks, player lists, `SaveWorld`, and announcements.
 - Persistent interval automations for saves and broadcasts; Discord alerts when a server changes between online and offline.
@@ -153,7 +153,7 @@ npm run build
 npm run build:demo
 ```
 
-The suite contains 18 Node backend/protocol tests and 5 dashboard interaction tests. It covers encryption and tampering, workspace isolation, CSRF, sessions, caps and downgrades, pending tasks, a local Source-RCON TCP server with fragmented packets, signed Stripe events/retries, Discord command definitions, and dashboard flows. External integrations are mocked or exercised with a local protocol fixture. Tests are not proof of live provider compatibility.
+The suite contains 18 Node backend/protocol tests and 6 dashboard interaction tests. It covers encryption and tampering, workspace isolation, CSRF, sessions, caps and downgrades, pending tasks, a local Source-RCON TCP server with fragmented packets, signed Stripe events/retries, Discord command definitions, dashboard flows, and persistent light/dark appearance. `node scripts/check-contrast.mjs` also verifies 15 text/background colour pairs per theme against a minimum 4.5:1 ratio. External integrations are mocked or exercised with a local protocol fixture. Tests are not proof of live provider compatibility.
 
 Browser screenshot QA was unavailable in this environment: the browser host was unavailable, and native Firefox automation stopped because URL-policy enforcement was unsupported. Desktop/mobile layout needs a visual review before public launch. The Docker image was built and smoke-tested: health and dashboard return 200, and protected API routes return 401 before sign-in.
 

@@ -6,7 +6,7 @@
 
 **Voice:** Calm, capable, direct. The community's worlds and time are the focus. Avoid imaginary uptime guarantees, fabricated social proof, and features that are not implemented.
 
-**Palette:** lime `#C4F56A`, charcoal `#151815`, sidebar `#111410`, panel `#1C201B`, off-white `#E9EDE5`, muted sage `#8B9486`. Typography: Manrope for headings, DM Sans for interface text. Fonts are locally hosted under the SIL Open Font License.
+**Palette:** the logo retains lime `#C4F56A` as its brand mark. The interface uses a neutral workspace `#F3F5F7`, white panels, slate navigation `#202A35`, text `#293747`, and restrained green `#367763` for actions and charts. Dark mode uses graphite `#191D23`, panels `#222830`, readable grey `#E0E6ED`, and muted green `#91BAA9`. Appearance is remembered in the browser. Status colours are reserved for operational meaning. Typography: Manrope for headings, DM Sans for interface text. Fonts are locally hosted under the SIL Open Font License. Standard interface text is 13–14px, with 11–12px supporting labels; content does not shrink at wider desktop sizes.
 
 ## Assets
 
@@ -16,7 +16,7 @@
 - `public/favicon.ico`: 32px PNG-backed ICO.
 - `public/brand/apple-touch-icon.png`: 180px touch icon.
 - `branding/island-master.png`: generated landscape source.
-- `public/island.webp`: compressed dashboard panorama. Server cards use art-directed crops of this illustration; they are not screenshots of their labeled maps.
+- `public/island.webp`: compressed landscape illustration used on the sign-in page. The operational dashboard uses plain server cards and reserves visual emphasis for status and actions.
 
 The rook/rift mark is combined with the lowercase wordmark in the interface. Preserve its transparent background and generous margin. The supplied favicon derivatives come from the generated mark, not from a substitute icon.
 

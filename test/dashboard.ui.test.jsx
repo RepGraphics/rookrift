@@ -58,3 +58,17 @@ test('workspace settings and search navigation work', async () => {
   await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: /Scorched Earth/ }));
   expect(screen.getByRole('dialog', { name: 'Scorched Earth · PvP' })).toBeTruthy();
 });
+test('appearance switches between light and dark, persists, and keeps server controls usable', async () => {
+  const user = userEvent.setup(); const view = render(<App/>);
+  expect(document.documentElement.dataset.theme).toBe('light');
+  await user.click(screen.getByRole('button', { name: 'Switch to dark mode' }));
+  expect(document.documentElement.dataset.theme).toBe('dark');
+  expect(localStorage.getItem('rookrift-theme')).toBe('dark');
+  await user.click(screen.getByRole('button', { name: 'Open The Island · PvE' }));
+  expect(screen.getByRole('dialog', { name: 'The Island · PvE' })).toBeTruthy();
+  await user.keyboard('{Escape}');
+  view.unmount(); render(<App/>);
+  expect(document.documentElement.dataset.theme).toBe('dark');
+  await user.click(screen.getByRole('button', { name: 'Switch to light mode' }));
+  expect(document.documentElement.dataset.theme).toBe('light');
+});
