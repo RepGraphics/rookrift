@@ -1,0 +1,12 @@
+node_modules
+dist
+.git
+.openai
+.env
+.env.*
+data
+.local
+test
+*.tar.gz
+*.log
+branding

@@ -1,0 +1,60 @@
+import React from 'react';
+import { render, screen, cleanup, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { App } from '../src/main.jsx';
+beforeEach(() => { localStorage.clear(); });
+afterEach(cleanup);
+test('dashboard renders the branded overview and opens server controls', async () => {
+  const user = userEvent.setup(); render(<App/>);
+  expect(screen.getByRole('heading', { name: 'Overview' })).toBeTruthy();
+  await user.click(screen.getByRole('button', { name: 'Open The Island · PvE' }));
+  const dialog = screen.getByRole('dialog');
+  await user.click(within(dialog).getByRole('button', { name: 'Save world' }));
+  expect(await screen.findByText(/\[SIMULATED\] SaveWorld acknowledged/)).toBeTruthy();
+});
+test('server creation discards the password and persists the demo record', async () => {
+  const user = userEvent.setup(); render(<App/>);
+  await user.click(screen.getByRole('button', { name: 'Add game server' }));
+  const dialog = screen.getByRole('dialog');
+  await user.type(within(dialog).getByLabelText('Server name'), 'Fjordur test');
+  await user.type(within(dialog).getByLabelText('RCON host'), 'test.example.com');
+  await user.type(within(dialog).getByLabelText(/RCON password/), 'must-never-persist');
+  await user.click(within(dialog).getByRole('button', { name: 'Add demo server' }));
+  const saved = localStorage.getItem('rookrift-demo-v1'); expect(saved).not.toContain('must-never-persist');
+  expect(JSON.parse(saved).servers.length).toBe(4); expect(screen.queryByRole('dialog')).toBeNull();
+});
+test('demo downgrade updates limits and pauses excess servers', async () => {
+  const user = userEvent.setup(); render(<App/>);
+  await user.click(screen.getByRole('button', { name: 'Plans & billing' }));
+  await user.click(screen.getByRole('button', { name: /Preview Scout/ }));
+  await user.click(screen.getByRole('button', { name: /Try this demo plan/ }));
+  await user.click(screen.getByRole('button', { name: /Game servers/ }));
+  expect(screen.getAllByText('Paused').length).toBe(2);
+  await user.click(screen.getByRole('button', { name: 'Add game server' }));
+  expect(screen.getByRole('dialog', { name: 'Your community is growing.' })).toBeTruthy();
+});
+test('automation creation, pause toggle, and keyboard dialog dismissal work', async () => {
+  const user = userEvent.setup(); render(<App/>);
+  await user.click(screen.getByRole('button', { name: 'Automations' }));
+  await user.click(screen.getByRole('button', { name: 'New automation' }));
+  const dialog = screen.getByRole('dialog');
+  await user.type(within(dialog).getByLabelText('Automation name'), 'Nightly save');
+  await user.selectOptions(within(dialog).getByLabelText('Game server'), 'd1');
+  await user.click(within(dialog).getByRole('button', { name: 'Create automation' }));
+  expect(screen.getByText('Nightly save')).toBeTruthy();
+  await user.click(screen.getByRole('button', { name: 'Pause Nightly save' }));
+  expect(screen.getByRole('button', { name: 'Enable Nightly save' }).getAttribute('aria-pressed')).toBe('false');
+  await user.click(screen.getByRole('button', { name: 'New automation' })); await user.keyboard('{Escape}');
+  expect(screen.queryByRole('dialog')).toBeNull();
+});
+test('workspace settings and search navigation work', async () => {
+  const user = userEvent.setup(); render(<App/>);
+  await user.click(screen.getByRole('button', { name: 'Settings' }));
+  const input = screen.getByLabelText('Workspace name'); await user.clear(input); await user.type(input, 'New tribe');
+  await user.click(screen.getByRole('button', { name: 'Save changes' }));
+  expect(JSON.parse(localStorage.getItem('rookrift-demo-v1')).workspace.name).toBe('New tribe');
+  await user.click(screen.getByRole('button', { name: 'Search servers' }));
+  await user.type(screen.getByLabelText('Search pages or servers'), 'Scorched');
+  await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: /Scorched Earth/ }));
+  expect(screen.getByRole('dialog', { name: 'Scorched Earth · PvP' })).toBeTruthy();
+});

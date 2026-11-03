@@ -1,0 +1,44 @@
+{
+  "name": "rookrift",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "dev": "vite --mode demo --host 127.0.0.1",
+    "dev:live": "vite --host 127.0.0.1",
+    "server:dev": "node --watch --env-file-if-exists=.env server/index.js",
+    "build": "vite build",
+    "build:demo": "vite build --mode demo",
+    "preview": "vite preview --host 127.0.0.1",
+    "start": "node --env-file-if-exists=.env server/index.js",
+    "test": "npm run test:unit && npm run test:ui",
+    "bot:register": "node --env-file-if-exists=.env server/register-commands.js",
+    "test:unit": "node --test test/*.test.js",
+    "test:ui": "vitest run"
+  },
+  "dependencies": {
+    "cookie-parser": "^1.4.7",
+    "discord.js": "^14.25.1",
+    "express": "^5.1.0",
+    "express-rate-limit": "^8.2.1",
+    "helmet": "^8.1.0",
+    "ipaddr.js": "^2.2.0",
+    "lucide-react": "^0.468.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "stripe": "^20.0.0",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.8",
+    "@vitejs/plugin-react": "^5.0.4",
+    "happy-dom": "^21.0.4",
+    "sharp": "^0.35.5",
+    "vite": "^7.2.2",
+    "vitest": "^5.1.0"
+  }
+}

@@ -1,0 +1,10 @@
+import sharp from 'sharp';
+import { writeFile } from 'node:fs/promises';
+const original = 'branding/rookrift-logo-master.png';
+for (const size of [32,64,180,512]) await sharp(original).resize(size,size).png().toFile(`public/brand/${size===180?'apple-touch-icon':`favicon-${size}`}.png`);
+await sharp(original).resize(512,512).png().toFile('public/brand/rookrift-logo.png');
+await sharp('branding/island-master.png').resize({ width: 1800 }).webp({ quality: 86 }).toFile('public/island.webp');
+const png = await sharp(original).resize(32,32).png().toBuffer();
+const header = Buffer.alloc(22); header.writeUInt16LE(1,2); header.writeUInt16LE(1,4); header[6]=32; header[7]=32; header.writeUInt16LE(1,10); header.writeUInt16LE(32,12); header.writeUInt32LE(png.length,14); header.writeUInt32LE(22,18);
+await writeFile('public/favicon.ico',Buffer.concat([header,png]));
+console.log('Production logo, favicon sizes, ICO, touch icon and compressed landscape ready.');

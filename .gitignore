@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+data/
+*.sqlite*
+*.tar.gz
+*.log
+playwright-report/
+test-results/
+.local/
