@@ -33,9 +33,29 @@ function demoPlayers(servers) {
 }
 export function upgradeDemo(data) {
   data.workspace.alerts_enabled ??= true;
+  data.workspace.failure_threshold ??= 1;
   data.servers = data.servers.map(server => ({ ...server, cluster: server.cluster ?? (server.game === 'asa' ? 'Main cluster' : 'Legacy worlds'), maintenance: Boolean(server.maintenance), last_checked: server.last_checked ?? (server.status === 'unknown' ? null : now) }));
   data.players ??= demoPlayers(data.servers);
   data.schedules = (data.schedules || []).map(schedule => ({ ...schedule, last_run: schedule.last_run ?? null, last_status: schedule.last_status ?? null, last_detail: schedule.last_detail ?? null }));
   data.activity = data.activity.map(event => ({ ...event, server_id: event.server_id || (event.detail?.includes('The Island') ? 'd1' : event.detail?.includes('Scorched Earth') ? 'd2' : event.detail?.includes('Ragnarok') ? 'd3' : null) }));
+  data.templates ??= [
+    {id:'tpl-welcome',name:'Community welcome',body:'Welcome to {server}! Join our Discord for rules, events, and support.',created_at:now,updated_at:now},
+    {id:'tpl-save',name:'World save notice',body:'{server} is saving shortly. {players} survivors are currently connected.',created_at:now+1,updated_at:now},
+    {id:'tpl-event',name:'Weekend event',body:'Our weekend event is live on {map}. Check Discord for the details.',created_at:now+2,updated_at:now}
+  ];
+  data.windows ??= [{id:'mw-weekly',name:'Weekly upkeep',server_ids:['d1','d2'],days:[0],start_time:'04:00',duration_minutes:30,time_zone:'UTC',enabled:true,created_at:now}];
+  data.incidents ??= data.servers.filter(server=>server.status==='offline').map(server=>({id:`incident-${server.id}`,server_id:server.id,server_name:server.name,opened_at:now-840000,resolved_at:null,acknowledged_at:null,notes:'Investigate the RCON connection and game host status.'}));
+  data.notifications ??= {unread:data.incidents.length,items:data.incidents.map(incident=>({id:`notification-${incident.id}`,title:'RCON outage detected',detail:incident.server_name,level:'error',target:'incidents',created_at:incident.opened_at,read_at:null}))};
+  data.moderation ??= [];
+  data.hosting_links ??= data.servers.some(server=>server.id==='d1')?[{server_id:'d1',provider:'pterodactyl',origin:'https://panel.example.com',remote_id:'demo0001',verified_at:now}]:[];
+  data.host_resources ??= {d1:{state:'running',cpu:14.2,memory_bytes:4*1024**3,disk_bytes:18*1024**3,uptime_ms:68400000}};
+  data.backups ??= {d1:[{id:'backup-demo-1',name:'Daily world archive',bytes:840*1024**2,created_at:new Date(now-86400000).toISOString(),completed_at:new Date(now-86400000+60000).toISOString(),status:'completed'}]};
+  data.runs ??= data.schedules.flatMap(task=>[{id:`run-${task.id}`,schedule_id:task.id,server_id:task.server_id,started_at:now-3600000,finished_at:now-3599000,status:'success',detail:'Simulated command acknowledged.'}]);
   return data;
+}
+export function demoHealth(server,hours=24) {
+  const count=Math.min(96,hours*4),base=Date.now()-hours*3600000;
+  const series=Array.from({length:count},(_,index)=>{const failed=server.status==='offline'&&index>count*.8;return {time:base+index*hours*3600000/count,players:failed?0:Math.max(0,Math.round(server.players*(.7+.3*Math.sin(index/5)))),availability:failed?0:100,latency:failed?null:Math.round(24+9*Math.sin(index/3)+index%5)};});
+  const latencies=series.filter(point=>point.latency!=null).map(point=>point.latency).sort((a,b)=>a-b);
+  return {hours,samples:hours*60,availability:series.reduce((sum,point)=>sum+point.availability,0)/count,p95_latency:latencies[Math.max(0,Math.ceil(latencies.length*.95)-1)]||null,peak_players:Math.max(...series.map(point=>point.players)),series,incidents:[]};
 }

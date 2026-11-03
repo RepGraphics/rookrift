@@ -17,8 +17,12 @@ export async function resolveTarget(host, allowPrivate = process.env.ALLOW_PRIVA
 export function commandFor(action, message = '') {
   if (action === 'players' || action === 'status') return 'ListPlayers';
   if (action === 'save') return 'SaveWorld';
+  if (['kick','ban','unban'].includes(action)) {
+    if (!/^[A-Za-z0-9_-]{3,128}$/.test(message)) throw Object.assign(new Error('Use a valid server-reported player identifier.'),{status:400});
+    return `${({kick:'KickPlayer',ban:'BanPlayer',unban:'UnbanPlayer'})[action]} ${message}`;
+  }
   if (action === 'broadcast') {
-    const cleaned = message.replace(/[\r\n\x00-\x1f]/g, ' ').trim();
+    const cleaned = message.replace(/[\x00-\x1f\x7f|]/g, ' ').trim();
     if (!cleaned || cleaned.length > 300) throw Object.assign(new Error('Broadcast must contain 1–300 characters.'), { status: 400 });
     return `Broadcast ${cleaned}`;
   }

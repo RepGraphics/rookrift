@@ -20,17 +20,31 @@ export function openDatabase(filename = process.env.DATABASE_PATH || './data/roo
     CREATE INDEX IF NOT EXISTS idx_metrics_time ON metrics(server_id,created_at);`);
   // Existing installations are upgraded in place; connection records and secrets survive.
   const columns = {
-    servers: { cluster: "TEXT NOT NULL DEFAULT ''", maintenance: 'INTEGER NOT NULL DEFAULT 0', player_list: "TEXT NOT NULL DEFAULT '[]'" },
+    servers: { cluster: "TEXT NOT NULL DEFAULT ''", maintenance: 'INTEGER NOT NULL DEFAULT 0', player_list: "TEXT NOT NULL DEFAULT '[]'", notes: "TEXT NOT NULL DEFAULT ''", failed_checks: 'INTEGER NOT NULL DEFAULT 0', failed_since: 'INTEGER' },
     schedules: { last_run: 'INTEGER', last_status: 'TEXT', last_detail: 'TEXT' },
-    workspaces: { alerts_enabled: 'INTEGER NOT NULL DEFAULT 1' }
+    workspaces: { alerts_enabled: 'INTEGER NOT NULL DEFAULT 1', failure_threshold: 'INTEGER NOT NULL DEFAULT 1' },
+    metrics: { latency: 'INTEGER' }
   };
   db.exec('BEGIN');
   try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS announcement_templates (id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL REFERENCES workspaces(id),name TEXT NOT NULL,body TEXT NOT NULL,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS maintenance_windows (id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL REFERENCES workspaces(id),name TEXT NOT NULL,server_ids TEXT NOT NULL,days TEXT NOT NULL,start_time TEXT NOT NULL,duration_minutes INTEGER NOT NULL,time_zone TEXT NOT NULL,enabled INTEGER NOT NULL DEFAULT 1,created_at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS notifications (id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL REFERENCES workspaces(id),title TEXT NOT NULL,detail TEXT NOT NULL,level TEXT NOT NULL,target TEXT NOT NULL,source_key TEXT UNIQUE,created_at INTEGER NOT NULL,read_at INTEGER);
+      CREATE TABLE IF NOT EXISTS incidents (id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL REFERENCES workspaces(id),server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,opened_at INTEGER NOT NULL,resolved_at INTEGER,acknowledged_at INTEGER,notes TEXT NOT NULL DEFAULT '');
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_one_open_incident ON incidents(server_id) WHERE resolved_at IS NULL;
+      CREATE TABLE IF NOT EXISTS schedule_runs (id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL REFERENCES workspaces(id),schedule_id TEXT NOT NULL REFERENCES schedules(id) ON DELETE CASCADE,server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,started_at INTEGER NOT NULL,finished_at INTEGER NOT NULL,status TEXT NOT NULL,detail TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS moderation (id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL REFERENCES workspaces(id),server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,identifier TEXT NOT NULL,player_name TEXT NOT NULL,action TEXT NOT NULL,reason TEXT NOT NULL,actor TEXT NOT NULL,active INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_one_active_ban ON moderation(server_id,identifier) WHERE active=1;
+      CREATE TABLE IF NOT EXISTS hosting_connections (server_id TEXT PRIMARY KEY REFERENCES servers(id) ON DELETE CASCADE,workspace_id TEXT NOT NULL REFERENCES workspaces(id),provider TEXT NOT NULL,origin TEXT NOT NULL,remote_id TEXT NOT NULL,api_key TEXT NOT NULL,verified_at INTEGER NOT NULL);
+      CREATE INDEX IF NOT EXISTS idx_notifications_workspace ON notifications(workspace_id,created_at);
+      CREATE INDEX IF NOT EXISTS idx_runs_workspace ON schedule_runs(workspace_id,finished_at);
+    `);
     for (const [table, additions] of Object.entries(columns)) {
       const existing = new Set(db.prepare(`PRAGMA table_info(${table})`).all().map(column => column.name));
       for (const [name, definition] of Object.entries(additions)) if (!existing.has(name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
     }
-    db.exec('PRAGMA user_version=1; COMMIT');
+    db.exec('PRAGMA user_version=2; COMMIT');
   } catch (error) { db.exec('ROLLBACK'); db.close(); throw error; }
   return db;
 }

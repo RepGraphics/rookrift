@@ -12,7 +12,7 @@ Leave the password blank to retain the current encrypted secret. Entering a new 
 
 Select individual cards or **Select visible**. Choose **Check connections**, **Save worlds**, or **Broadcast**. Review the selected server names and confirm. Announcements require a non-empty message, up to 300 characters. Selecting all visible servers preserves other existing selections; the toolbar always shows the total selection count, and the confirmation lists every target.
 
-The API validates every server's workspace ownership and plan entitlement before executing the first command. A batch supports up to 20 distinct servers, with at most four independent RCON operations at a time. Results are shown per server, including partial failures. Failed commands are not automatically retried. Closing the browser or losing the HTTP response does not cancel commands already accepted by the backend; inspect activity and server state before retrying.
+The API validates every server's workspace ownership and plan entitlement before executing the first command. A batch supports up to 20 distinct servers, with at most four independent RCON operations at a time. Results are shown per server, including partial failures. Failed commands are not automatically retried. Closing the browser or losing the HTTP response does not cancel commands already accepted by the backend; inspect activity and server state before retrying. For the newer reliability, moderation, and hosting tools, see [OPERATIONS.md](OPERATIONS.md).
 
 `SaveWorld` updates a game's current world save. It does not create an independent backup, and these controls do not restart or shut down game processes.
 
@@ -50,7 +50,7 @@ Use the pencil icon under **Automations** to edit a task's name, server, action,
 
 The play button opens **Run automation now**. It runs the saved action once and leaves the next scheduled time unchanged. Manually running a paused task is allowed if it remains within the current plan. Maintenance and plan-paused tasks cannot be run from the dashboard. The backend records skipped maintenance attempts defensively.
 
-Each task shows its latest execution status and time: successful, failed, skipped, or not run yet. This is the latest outcome, not a separate unbounded execution history. Detailed events remain in the workspace activity log under your plan's retention policy. Failed tasks are not automatically retried.
+Each task shows its latest execution status and time: successful, failed, skipped, or not run yet. The History button now provides up to 50 retained execution records. Detailed events also remain in the workspace activity log under your plan's retention policy. Failed tasks are not automatically retried.
 
 ## Control notifications and export activity
 

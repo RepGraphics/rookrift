@@ -27,6 +27,11 @@ Open the printed address, normally http://127.0.0.1:5173. Demo changes persist i
 - Persistent interval automations with editing, run-now controls, and latest successful/failed/skipped outcomes.
 - Maintenance mode that pauses scheduled commands and connection alerts while monitoring continues.
 - Workspace Discord alert preferences, searchable/server-filtered activity, and CSV export of visible events.
+- Operations workspace with per-server health trends, observed availability, latency percentiles, incident acknowledgement/notes, and persistent notifications.
+- Reusable announcement templates, live placeholders, timezone-aware weekly maintenance windows, and retained automation execution history.
+- Player kick/ban/unban controls with server-reported identity checks, internal reasons, and a moderation audit trail.
+- Verified Pterodactyl client API connections for process resources, start/stop/restart requests, and provider backup creation/status.
+- Internal server notes and configurable consecutive-failure thresholds for outage incidents.
 - Discord OAuth sign-in with state validation and secure, revocable sessions.
 - Discord slash commands with autocomplete, guild-only execution, Manage Server checks, workspace ownership, and private responses.
 - Stripe Checkout, customer portal, verified/idempotent webhooks, current-state reconciliation, and server-side entitlements.
@@ -159,14 +164,14 @@ npm run build
 npm run build:demo
 ```
 
-The suite contains 31 Node backend/protocol tests and 13 dashboard interaction tests. It covers encryption, workspace isolation, CSRF, sessions, caps/downgrades, database upgrades, bulk validation/partial failures, maintenance, alert preferences, cached player isolation, automation editing/outcomes, CSV formula escaping, a local Source-RCON TCP fixture, signed Stripe events, Discord command definitions, and dashboard workflows. `node scripts/check-contrast.mjs` also verifies 15 text/background colour pairs per theme against a minimum 4.5:1 ratio. External integrations are mocked or exercised with a local protocol fixture. Tests are not proof of live provider compatibility.
+The suite contains 48 Node backend/protocol tests and 24 dashboard interaction tests. Coverage includes encrypted credentials, workspace isolation, CSRF, sessions, paid limits, migrations, bulk actions, recurring windows, timezone/midnight behavior, moderation identity/command checks, Pterodactyl request mapping/confirmation, SSRF restrictions, announcements, incidents, notifications, health analytics, execution history, RCON TCP framing, and the existing billing/dashboard flows. `node scripts/check-contrast.mjs` verifies 15 text/background colour pairs per theme against a minimum 4.5:1 ratio. External integrations are mocked or exercised with a local protocol fixture. Tests are not proof of live provider compatibility.
 
 Browser screenshot QA was unavailable in this environment: the browser host was unavailable, and native Firefox automation stopped because URL-policy enforcement was unsupported. Desktop/mobile layout needs a visual review before public launch. The Docker image was built and smoke-tested: health and dashboard return 200, and protected API routes return 401 before sign-in.
 
 ## Scope and next steps
 
-This MVP does not start/stop game-server processes, install mods, edit INI files remotely, manage file backups, relay cross-server chat, provide delegated web-dashboard team seats, or implement DayZ. Those require game-host APIs, a narrowly scoped host agent, or additional protocol adapters. RCON `SaveWorld` writes the current game save; it is not an independent backup.
+Process start/stop/restart and file backup creation/status now use a connected Pterodactyl panel. Other hosts, a native host agent, backup restoration/download/deletion, mod installation, remote INI editing, cross-server chat, delegated web-dashboard team seats, and DayZ are not implemented. RCON `SaveWorld` writes the current game save; it is separate from provider file backups. Moderation records submitted commands and still requires live game/provider verification.
 
 Automations are interval-based, not cron calendars. They are claimed before running, run at most once per claim, and skip missed intervals after downtime. Monitoring is sequential per minute cycle, so large or unreachable fleets take longer. Events older than the plan retention period are pruned by the background process. Demo data is browser-local and persists until reset.
 
-See [FEATURES.md](docs/FEATURES.md) for fleet operations and upgrade instructions, [LAUNCH.md](docs/LAUNCH.md) for a route to a paid pilot, [ARCHITECTURE.md](docs/ARCHITECTURE.md) for system details, and [BRAND.md](docs/BRAND.md) for the identity and image prompts.
+See [OPERATIONS.md](docs/OPERATIONS.md) for v0.3 reliability, moderation, hosting setup and upgrade instructions; [FEATURES.md](docs/FEATURES.md) for fleet basics; [LAUNCH.md](docs/LAUNCH.md) for a route to a paid pilot; and [ARCHITECTURE.md](docs/ARCHITECTURE.md) for system details.

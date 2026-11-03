@@ -1,7 +1,7 @@
 export const PLANS = Object.freeze({
-  scout: { id: 'scout', name: 'Scout', price: 0, servers: 1, schedules: 0, historyDays: 1 },
-  tribe: { id: 'tribe', name: 'Tribe', price: 9, servers: 5, schedules: 10, historyDays: 7 },
-  cluster: { id: 'cluster', name: 'Cluster', price: 24, servers: 20, schedules: 50, historyDays: 30 }
+  scout: { id: 'scout', name: 'Scout', price: 0, servers: 1, schedules: 0, templates: 3, windows: 0, historyDays: 1 },
+  tribe: { id: 'tribe', name: 'Tribe', price: 9, servers: 5, schedules: 10, templates: 25, windows: 10, historyDays: 7 },
+  cluster: { id: 'cluster', name: 'Cluster', price: 24, servers: 20, schedules: 50, templates: 100, windows: 50, historyDays: 30 }
 });
 export function effectivePlan(workspace) {
   return ['active', 'trialing'].includes(workspace.subscription_status) ? (PLANS[workspace.plan] || PLANS.scout) : PLANS.scout;
