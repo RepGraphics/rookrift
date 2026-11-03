@@ -5,6 +5,7 @@ export function commandDefinitions() {
   const builder = new SlashCommandBuilder().setName('rookrift').setDescription('Manage your survival servers').setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild).setContexts(0);
   builder.addSubcommand(c => c.setName('servers').setDescription('List your connected game servers'));
   builder.addSubcommand(c => c.setName('dashboard').setDescription('Open your command center'));
+  builder.addSubcommand(c => c.setName('maintenance').setDescription('Pause scheduled tasks and alerts for a server').addStringOption(o => o.setName('server').setDescription('Choose a game server').setRequired(true).setAutocomplete(true)).addBooleanOption(o => o.setName('enabled').setDescription('Enable or end maintenance mode').setRequired(true)));
   for (const action of ['status', 'players', 'save', 'broadcast']) {
     builder.addSubcommand(c => {
       c.setName(action).setDescription(({ status: 'Check an ARK server connection', players: 'List connected players', save: 'Save the world now', broadcast: 'Send a server announcement' })[action]).addStringOption(o => o.setName('server').setDescription('Choose a game server').setRequired(true).setAutocomplete(true));
@@ -37,7 +38,13 @@ export async function startBot(db, service, env = process.env) {
       if (action === 'dashboard') description = env.APP_URL;
       else if (action === 'servers') {
         title = `${ws.name} · ${effectivePlan(ws).name}`;
-        description = listServers(db, ws.id).map((s, i) => `${i >= effectivePlan(ws).servers ? '⏸' : s.status === 'online' ? '🟢' : '⚪'} **${s.name}** · ${s.game.toUpperCase()} · ${s.status === 'online' ? s.players : '—'} players`).join('\n') || 'No servers yet. Add your first server in the dashboard.';
+        description = listServers(db, ws.id).map((s, i) => `${i >= effectivePlan(ws).servers ? '⏸' : s.status === 'online' ? '🟢' : '⚪'} **${s.name}** · ${s.game.toUpperCase()} · ${s.status === 'online' ? s.players : '—'} players${s.maintenance ? ' · Maintenance' : ''}`).join('\n') || 'No servers yet. Add your first server in the dashboard.';
+      } else if (action === 'maintenance') {
+        const id = interaction.options.getString('server', true);
+        service.getServer(ws.id, id);
+        const server = service.updateServer(ws.id, id, { maintenance: interaction.options.getBoolean('enabled', true) });
+        title = `${server.name} · Maintenance ${server.maintenance ? 'enabled' : 'ended'}`;
+        description = server.maintenance ? 'Scheduled tasks and connection alerts are paused. RCON monitoring and manual controls remain available.' : 'Scheduled tasks and connection alerts have resumed.';
       } else {
         const result = await service.action(ws.id, interaction.options.getString('server', true), action, interaction.options.getString('message'), `Discord: ${interaction.user.username}`);
         title = `Rookrift · ${action}`;

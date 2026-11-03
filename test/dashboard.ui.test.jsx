@@ -72,3 +72,75 @@ test('appearance switches between light and dark, persists, and keeps server con
   await user.click(screen.getByRole('button', { name: 'Switch to light mode' }));
   expect(document.documentElement.dataset.theme).toBe('light');
 });
+test('server connection edits preserve a blank password, rename player snapshots, and filter by group', async () => {
+  const user=userEvent.setup(); render(<App/>);
+  await user.click(screen.getByRole('button',{name:/Game servers/}));
+  await user.click(screen.getByRole('button',{name:'Edit The Island · PvE'}));
+  const dialog=screen.getByRole('dialog',{name:'Edit server connection'});
+  await user.clear(within(dialog).getByLabelText('Server name')); await user.type(within(dialog).getByLabelText('Server name'),'Island EU');
+  await user.clear(within(dialog).getByLabelText(/Server group/)); await user.type(within(dialog).getByLabelText(/Server group/),'EU cluster');
+  expect(within(dialog).getByLabelText(/RCON password/).value).toBe('');
+  await user.click(within(dialog).getByRole('button',{name:'Save server changes'}));
+  const saved=JSON.parse(localStorage.getItem('rookrift-demo-v1')); const server=saved.servers.find(item=>item.id==='d1');
+  expect(server.name).toBe('Island EU'); expect(server.status).toBe('online'); expect(server.password).toBeUndefined();
+  expect(saved.players.find(player=>player.server_id==='d1').server_name).toBe('Island EU');
+  await user.selectOptions(screen.getByLabelText('Server group'),'EU cluster');
+  expect(screen.getByRole('button',{name:'Open Island EU'})).toBeTruthy(); expect(screen.queryByRole('button',{name:'Open Scorched Earth · PvP'})).toBeNull();
+});
+test('maintenance confirmation persists and disables the affected automation run control', async () => {
+  const user=userEvent.setup();render(<App/>);
+  await user.click(screen.getByRole('button',{name:/Game servers/}));
+  await user.click(screen.getByRole('button',{name:'Enable maintenance for The Island · PvE'}));
+  expect(localStorage.getItem('rookrift-demo-v1')).toBeNull();
+  await user.click(within(screen.getByRole('dialog')).getByRole('button',{name:'Enable maintenance'}));
+  expect(JSON.parse(localStorage.getItem('rookrift-demo-v1')).servers.find(server=>server.id==='d1').maintenance).toBe(true);
+  await user.click(screen.getByRole('button',{name:'Automations'}));
+  expect(screen.getByRole('button',{name:'Run Keep the world safe now'}).disabled).toBe(true);
+  expect(screen.getByText('Server in maintenance')).toBeTruthy();
+});
+test('bulk world saves require confirmation and report partial failures per server', async () => {
+  const user=userEvent.setup(); render(<App/>);
+  await user.click(screen.getByRole('button',{name:/Game servers/}));
+  await user.click(screen.getByLabelText('Select visible')); await user.click(screen.getByRole('button',{name:'Save worlds'}));
+  expect(localStorage.getItem('rookrift-demo-v1')).toBeNull();
+  await user.click(within(screen.getByRole('dialog')).getByRole('button',{name:'Confirm world saves'}));
+  const results=screen.getByRole('dialog',{name:'Bulk action results'});
+  expect(within(results).getByText(/2 succeeded · 1 failed/)).toBeTruthy();
+  expect(within(results).getByText('RCON connection unavailable.')).toBeTruthy();
+  expect(JSON.parse(localStorage.getItem('rookrift-demo-v1')).activity.filter(event=>event.detail.includes('Demo bulk action')).length).toBe(3);
+});
+test('selected-server announcements have a message field and successful simulated results', async () => {
+  const user=userEvent.setup();render(<App/>);
+  await user.click(screen.getByRole('button',{name:/Game servers/}));
+  await user.click(screen.getByLabelText('Select The Island · PvE'));await user.click(screen.getByLabelText('Select Scorched Earth · PvP'));
+  await user.click(screen.getByRole('button',{name:'Broadcast'}));
+  await user.type(screen.getByLabelText('Announcement to selected servers'),'Maintenance starts in ten minutes.');
+  await user.click(screen.getByRole('button',{name:'Send announcement'}));
+  expect(within(screen.getByRole('dialog')).getByText(/2 succeeded · 0 failed/)).toBeTruthy();
+});
+test('player snapshots can be searched by name or ID and filtered to one server', async () => {
+  const user=userEvent.setup();render(<App/>);await user.click(screen.getByRole('button',{name:'Players'}));
+  expect(screen.getAllByRole('row').length).toBe(51);
+  await user.type(screen.getByLabelText('Search players'),'RidgeRunner'); expect(screen.getAllByRole('row').length).toBe(7);
+  await user.selectOptions(screen.getByLabelText('Player server filter'),'d2');expect(screen.getAllByRole('row').length).toBe(3);
+  await user.clear(screen.getByLabelText('Search players'));await user.type(screen.getByLabelText('Search players'),'DEMO-D2-001');
+  expect(screen.getAllByRole('row').length).toBe(2);
+});
+test('automation editing and run-now retain an outcome without shifting the next schedule', async () => {
+  const user=userEvent.setup();render(<App/>);await user.click(screen.getByRole('button',{name:'Automations'}));
+  await user.click(screen.getByRole('button',{name:'Edit Keep the world safe'}));
+  const input=screen.getByLabelText('Automation name'); await user.clear(input);await user.type(input,'Two-hour save');
+  await user.selectOptions(screen.getByLabelText('Run every'),'120'); await user.click(screen.getByRole('button',{name:'Save automation changes'}));
+  const next=JSON.parse(localStorage.getItem('rookrift-demo-v1')).schedules.find(task=>task.id==='t1').next_run;
+  await user.click(screen.getByRole('button',{name:'Run Two-hour save now'}));await user.click(screen.getByRole('button',{name:'Run automation now'}));
+  expect(screen.getByText('Last run successful')).toBeTruthy();
+  const task=JSON.parse(localStorage.getItem('rookrift-demo-v1')).schedules.find(item=>item.id==='t1');expect(task.last_status).toBe('success');expect(task.next_run).toBe(next);
+});
+test('connection alerts and searchable activity filters persist or narrow the intended records', async () => {
+  const user=userEvent.setup();render(<App/>);await user.click(screen.getByRole('button',{name:'Settings'}));
+  await user.click(screen.getByRole('checkbox',{name:/Enable Discord connection alerts/}));await user.click(screen.getByRole('button',{name:'Save changes'}));
+  expect(JSON.parse(localStorage.getItem('rookrift-demo-v1')).workspace.alerts_enabled).toBe(false);
+  await user.click(screen.getByRole('button',{name:'Activity log'}));await user.selectOptions(screen.getByLabelText('Activity server filter'),'d3');
+  expect(screen.getByRole('heading',{name:'Server went offline'})).toBeTruthy();expect(screen.queryByRole('heading',{name:'World saved'})).toBeNull();
+  await user.type(screen.getByLabelText('Search activity'),'does-not-exist');expect(screen.getByRole('button',{name:'Export visible'}).disabled).toBe(true);
+});

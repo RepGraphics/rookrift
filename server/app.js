@@ -8,9 +8,9 @@ import { existsSync } from 'node:fs';
 import { z } from 'zod';
 import { hash } from './crypto.js';
 import { effectivePlan, PLANS } from './plans.js';
-import { listServers, publicServer, audit } from './db.js';
+import { listServers, publicServer, playerSnapshot, audit } from './db.js';
 import { GAMES, resolveTarget } from './games.js';
-import { serverSchema } from './service.js';
+import { serverSchema, serverUpdateSchema } from './service.js';
 const discordFetch = async (path, token) => {
   const response = await fetch(`https://discord.com/api/v10${path}`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10000) });
   if (!response.ok) throw Object.assign(new Error('Discord authorization expired or is unavailable. Sign in again.'), { status: 401 });
@@ -77,7 +77,8 @@ export function createApp({ db, vault, service, billing, getBot = () => null, en
     const chart = history.map(h => ({ time: h.time, players: Math.round(h.players / Math.max(1, h.samples / activeCount)) }));
     const activity = db.prepare('SELECT * FROM activity WHERE workspace_id=? ORDER BY created_at DESC LIMIT 100').all(ws.id);
     const invite = env.DISCORD_CLIENT_ID ? `https://discord.com/oauth2/authorize?${new URLSearchParams({ client_id: env.DISCORD_CLIENT_ID, scope: 'bot applications.commands', permissions: '19456', integration_type: '0' })}` : null;
-    res.set('Cache-Control', 'no-store').json({ user, workspace: { id: ws.id, name: ws.name, plan: plan.id, subscription_status: ws.subscription_status, hasBillingAccount: Boolean(ws.customer_id), guild_id: ws.guild_id, guild_name: ws.guild_name, alert_channel_id: ws.alert_channel_id }, servers: servers.map((s, i) => publicServer(s, i >= plan.servers)), schedules, activity, metrics: { history: chart, uptime }, plans: Object.values(PLANS), games: Object.values(GAMES), csrf: req.auth.csrf, integrations: { discord: Boolean(getBot()?.isReady()), billing: billing.ready, invite } });
+    const entitled = servers.map((server, i) => ({ ...server, paused: i >= plan.servers }));
+    res.set('Cache-Control', 'no-store').json({ user, workspace: { id: ws.id, name: ws.name, plan: plan.id, subscription_status: ws.subscription_status, hasBillingAccount: Boolean(ws.customer_id), guild_id: ws.guild_id, guild_name: ws.guild_name, alert_channel_id: ws.alert_channel_id, alerts_enabled: Boolean(ws.alerts_enabled) }, servers: entitled.map(s => publicServer(s, s.paused)), players: playerSnapshot(entitled), schedules, activity, metrics: { history: chart, uptime }, plans: Object.values(PLANS), games: Object.values(GAMES), csrf: req.auth.csrf, integrations: { discord: Boolean(getBot()?.isReady()), billing: billing.ready, invite } });
   });
   app.post('/api/logout', (req, res) => { db.prepare('DELETE FROM sessions WHERE token_hash=?').run(req.auth.token_hash); res.clearCookie('rookrift_session', cookieOptions).json({ ok: true }); });
   app.post('/api/servers', async (req, res) => {
@@ -85,6 +86,13 @@ export function createApp({ db, vault, service, billing, getBot = () => null, en
     await resolveTarget(input.host);
     res.status(201).json(service.addServer(req.workspace.id, input));
   });
+  app.patch('/api/servers/:id', async (req, res) => {
+    const input = serverUpdateSchema.parse(req.body);
+    service.getServer(req.workspace.id, req.params.id, false);
+    if (input.host !== undefined) await resolveTarget(input.host);
+    res.json(service.updateServer(req.workspace.id, req.params.id, input));
+  });
+  app.post('/api/servers/bulk-actions', async (req, res) => res.json(await service.bulkAction(req.workspace.id, req.body)));
   app.delete('/api/servers/:id', (req, res) => {
     const server = service.getServer(req.workspace.id, req.params.id, false);
     db.prepare('DELETE FROM servers WHERE id=? AND workspace_id=?').run(server.id, req.workspace.id);
@@ -96,13 +104,12 @@ export function createApp({ db, vault, service, billing, getBot = () => null, en
   });
   app.post('/api/schedules', (req, res) => res.status(201).json(service.addSchedule(req.workspace.id, req.body)));
   app.patch('/api/schedules/:id', (req, res) => {
-    const { enabled } = z.object({ enabled: z.boolean() }).parse(req.body);
-    const result = db.prepare('UPDATE schedules SET enabled=? WHERE id=? AND workspace_id=?').run(enabled ? 1 : 0, req.params.id, req.workspace.id);
-    if (!result.changes) { res.status(404).json({ error: 'Automation not found.' }); return; } res.json({ ok: true });
+    res.json(service.updateSchedule(req.workspace.id, req.params.id, req.body));
   });
+  app.post('/api/schedules/:id/run', async (req, res) => res.json(await service.runSchedule(req.workspace.id, req.params.id)));
   app.delete('/api/schedules/:id', (req, res) => { db.prepare('DELETE FROM schedules WHERE id=? AND workspace_id=?').run(req.params.id, req.workspace.id); res.json({ ok: true }); });
   app.patch('/api/workspace', async (req, res) => {
-    const input = z.object({ name: z.string().trim().min(2).max(60), guild_id: z.string().regex(/^\d{17,20}$/).nullable().optional(), alert_channel_id: z.string().regex(/^\d{17,20}$/).nullable().optional() }).parse(req.body);
+    const input = z.object({ name: z.string().trim().min(2).max(60), guild_id: z.string().regex(/^\d{17,20}$/).nullable().optional(), alert_channel_id: z.string().regex(/^\d{17,20}$/).nullable().optional(), alerts_enabled: z.boolean().optional() }).parse(req.body);
     let guildId = req.workspace.guild_id, guildName = req.workspace.guild_name, channelId = req.workspace.alert_channel_id;
     const bot = getBot();
     if (input.guild_id !== undefined && input.guild_id !== guildId) {
@@ -118,14 +125,14 @@ export function createApp({ db, vault, service, billing, getBot = () => null, en
     }
     if (input.alert_channel_id !== undefined) {
       channelId = input.alert_channel_id;
-      if (channelId) {
+      if (channelId && (channelId !== req.workspace.alert_channel_id || guildId !== req.workspace.guild_id)) {
         const channel = bot?.isReady() && await bot.channels.fetch(channelId).catch(() => null);
         if (!channel || channel.guildId !== guildId || !channel.isTextBased() || !('send' in channel)) throw Object.assign(new Error('Choose a text channel in the linked Discord community.'), { status: 400 });
       }
     }
     const occupied = guildId && db.prepare('SELECT id FROM workspaces WHERE guild_id=? AND id!=?').get(guildId, req.workspace.id);
     if (occupied) throw Object.assign(new Error('That Discord community is already linked to another workspace.'), { status: 409 });
-    db.prepare('UPDATE workspaces SET name=?,guild_id=?,guild_name=?,alert_channel_id=? WHERE id=?').run(input.name, guildId, guildName, channelId, req.workspace.id);
+    db.prepare('UPDATE workspaces SET name=?,guild_id=?,guild_name=?,alert_channel_id=?,alerts_enabled=? WHERE id=?').run(input.name, guildId, guildName, channelId, input.alerts_enabled === undefined ? req.workspace.alerts_enabled : Number(input.alerts_enabled), req.workspace.id);
     res.json({ ok: true });
   });
   app.post('/api/billing/checkout', async (req, res) => { const { plan } = z.object({ plan: z.enum(['tribe', 'cluster']) }).parse(req.body); res.json({ url: await billing.checkout(req.workspace, plan) }); });

@@ -18,12 +18,35 @@ export function openDatabase(filename = process.env.DATABASE_PATH || './data/roo
     CREATE INDEX IF NOT EXISTS idx_servers_workspace ON servers(workspace_id,created_at,id);
     CREATE INDEX IF NOT EXISTS idx_activity_workspace ON activity(workspace_id,created_at);
     CREATE INDEX IF NOT EXISTS idx_metrics_time ON metrics(server_id,created_at);`);
+  // Existing installations are upgraded in place; connection records and secrets survive.
+  const columns = {
+    servers: { cluster: "TEXT NOT NULL DEFAULT ''", maintenance: 'INTEGER NOT NULL DEFAULT 0', player_list: "TEXT NOT NULL DEFAULT '[]'" },
+    schedules: { last_run: 'INTEGER', last_status: 'TEXT', last_detail: 'TEXT' },
+    workspaces: { alerts_enabled: 'INTEGER NOT NULL DEFAULT 1' }
+  };
+  db.exec('BEGIN');
+  try {
+    for (const [table, additions] of Object.entries(columns)) {
+      const existing = new Set(db.prepare(`PRAGMA table_info(${table})`).all().map(column => column.name));
+      for (const [name, definition] of Object.entries(additions)) if (!existing.has(name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
+    }
+    db.exec('PRAGMA user_version=1; COMMIT');
+  } catch (error) { db.exec('ROLLBACK'); db.close(); throw error; }
   return db;
 }
 export const listServers = (db, workspaceId) => db.prepare('SELECT * FROM servers WHERE workspace_id=? ORDER BY created_at,id').all(workspaceId);
 export function publicServer(row, paused = false) {
-  const { password, workspace_id, ...server } = row;
-  return { ...server, paused };
+  const { password, workspace_id, player_list, ...server } = row;
+  return { ...server, maintenance: Boolean(server.maintenance), paused };
+}
+export function playerSnapshot(servers) {
+  return servers.filter(server => server.status === 'online' && !server.paused).flatMap(server => {
+    let players; try { players = JSON.parse(server.player_list || '[]'); } catch { players = []; }
+    return (Array.isArray(players) ? players : []).slice(0, 1000).filter(line => typeof line === 'string').map((line, index) => {
+      const separator = line.lastIndexOf(',');
+      return { id: `${server.id}:${index}`, name: separator > -1 ? line.slice(0, separator).trim() : line, identifier: separator > -1 ? line.slice(separator + 1).trim() : '', server_id: server.id, server_name: server.name, game: server.game, cluster: server.cluster, checked_at: server.last_checked };
+    });
+  });
 }
 export function audit(db, workspace, title, detail, level = 'info', server = null) {
   db.prepare('INSERT INTO activity VALUES(?,?,?,?,?,?,?)').run(randomUUID(), workspace, server, title, detail.slice(0, 1500), level, Date.now());

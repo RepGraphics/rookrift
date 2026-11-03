@@ -75,5 +75,7 @@ test('overlapping commands on one server are refused', async () => {
 });
 test('bot commands are guild-only, permission-gated, and have complete definitions', () => {
   const [command] = commandDefinitions(); assert.equal(command.name, 'rookrift'); assert.equal(command.default_member_permissions, '32');
-  assert.deepEqual(command.contexts, [0]); assert.equal(command.options.length, 6);
+  assert.deepEqual(command.contexts, [0]); assert.equal(command.options.length, 7);
+  const maintenance = command.options.find(option => option.name === 'maintenance');
+  assert.ok(maintenance.options.some(option => option.name === 'enabled' && option.required));
 });

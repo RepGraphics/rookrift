@@ -29,4 +29,12 @@ The DayZ adapter declares its different BattlEye protocol and remains unavailabl
 
 The hosted Site packages `dist/` from `npm run build:demo`. It intentionally uses browser storage and simulated actions. The Docker deployment runs a live-mode build, real OAuth, the persistent backend, Discord gateway, Stripe endpoints, and TCP RCON. They are separate deployment targets.
 
+Schema upgrades add groups, maintenance state, the current player snapshot, workspace alert preferences, and the latest task outcome to existing installations. Additions are idempotent and transactional. Take a consistent database/key backup before upgrades. Private credentials remain encrypted; `publicServer` strips both the secret and the internal JSON player cache. The authenticated bootstrap emits a separate filtered player roster for online, entitled servers.
+
+Bulk commands validate the complete selection before side effects and then use bounded batches of four connections. Each individual operation still passes through the shared tenant/entitlement checks and per-server lock. Responses preserve per-server failures. There is no transactional rollback for game commands, and a lost HTTP response is not proof that a command was not executed.
+
+Maintenance is an operational preference, not a game-process state. Scheduler attempts are skipped and recorded while monitoring continues. Workspace and per-server alert preferences suppress outgoing connection notifications without suppressing audit events. Task run-now and scheduled execution share the same outcome writer and per-task lock. Manual runs preserve the next scheduled timestamp.
+
+CSV generation is shared and tested independently. It exports only visible activity records, escapes quoted cells, and neutralizes formula prefixes rather than exposing an executable spreadsheet payload. Browser components for fleet tools and common controls live in `src/features.jsx` and `src/ui.jsx`.
+
 Scaling boundaries: one process, one SQLite store, sequential poll cycles, local command locks. Use PostgreSQL plus a queue and distributed job claims before multiple replicas. A production operation also needs monitoring, external uptime checks, restore drills, incident response, account deletion/export handling, and dependency maintenance.

@@ -60,3 +60,26 @@ test('same-origin logout revokes the session', async t => {
   const response = await fetch(`${url}/api/logout`, { method: 'POST', headers }); assert.equal(response.status, 200);
   assert.equal((await fetch(`${url}/api/bootstrap`, { headers })).status, 401);
 });
+test('new server editing and snapshot endpoints keep secrets private and reject private addresses', async t => {
+  const {service,url,headers}=await setup(t); const server=service.addServer('w1',{name:'Island',game:'asa',map:'The Island',host:'8.8.8.8',port:27020,password:'secret'});
+  const response=await fetch(`${url}/api/servers/${server.id}`,{method:'PATCH',headers,body:JSON.stringify({cluster:'Main',maintenance:true,password:''})});
+  assert.equal(response.status,200); const data=await response.json(); assert.equal(data.maintenance,true); assert.equal(data.password,undefined);
+  assert.equal((await fetch(`${url}/api/servers/${server.id}`,{method:'PATCH',headers,body:JSON.stringify({host:'127.0.0.1'})})).status,400);
+  await service.action('w1',server.id,'status'); const bootstrap=await (await fetch(`${url}/api/bootstrap`,{headers})).json();
+  assert.equal(bootstrap.players[0].name,'Test player'); assert.equal(bootstrap.servers[0].player_list,undefined);
+});
+test('bulk actions and automation editing work through authenticated API routes', async t => {
+  const {db,service,url,headers}=await setup(t); db.prepare("UPDATE workspaces SET plan='tribe',subscription_status='active' WHERE id='w1'").run();
+  const server=service.addServer('w1',{name:'Island',game:'asa',map:'The Island',host:'8.8.8.8',port:27020,password:'secret'});
+  const task=service.addSchedule('w1',{server_id:server.id,name:'Hourly save',action:'save',interval_minutes:60});
+  const edit=await fetch(`${url}/api/schedules/${task.id}`,{method:'PATCH',headers,body:JSON.stringify({server_id:server.id,name:'Updated task',action:'save',interval_minutes:120})}); assert.equal(edit.status,200);
+  const run=await fetch(`${url}/api/schedules/${task.id}/run`,{method:'POST',headers}); assert.equal(run.status,200); assert.equal((await run.json()).status,'success');
+  const bulk=await fetch(`${url}/api/servers/bulk-actions`,{method:'POST',headers,body:JSON.stringify({server_ids:[server.id],action:'save'})}); assert.equal(bulk.status,200); assert.equal((await bulk.json()).results[0].ok,true);
+  const malformed=await fetch(`${url}/api/schedules/${task.id}`,{method:'PATCH',headers,body:'null'}); assert.equal(malformed.status,400);
+});
+test('workspace connection alerts can be disabled without altering the linked channel', async t => {
+  const {db,url,headers}=await setup(t);
+  db.prepare("UPDATE workspaces SET alert_channel_id='123456789012345678' WHERE id='w1'").run();
+  const response=await fetch(`${url}/api/workspace`,{method:'PATCH',headers,body:JSON.stringify({name:'My tribe',alerts_enabled:false,alert_channel_id:'123456789012345678'})}); assert.equal(response.status,200);
+  const workspace=db.prepare("SELECT * FROM workspaces WHERE id='w1'").get(); assert.equal(workspace.alerts_enabled,0); assert.equal(workspace.alert_channel_id,'123456789012345678');
+});

@@ -20,8 +20,13 @@ Open the printed address, normally http://127.0.0.1:5173. Demo changes persist i
 
 - Responsive React dashboard with readable server cards, player history, RCON availability, activity filters, server search, and settings. Neutral light mode and a muted dark mode share a persistent appearance toggle in the header.
 - Separate per-server ASA/ASE selection; a workspace can manage both games using shared slots.
+- Server groups, fleet filters/sorting, and connection editing with optional encrypted password replacement.
 - Source RCON: connection checks, player lists, `SaveWorld`, and announcements.
-- Persistent interval automations for saves and broadcasts; Discord alerts when a server changes between online and offline.
+- Confirmed bulk connection checks, world saves, and announcements with per-server success/failure results.
+- A searchable cross-server player snapshot view with reported IDs and check timestamps.
+- Persistent interval automations with editing, run-now controls, and latest successful/failed/skipped outcomes.
+- Maintenance mode that pauses scheduled commands and connection alerts while monitoring continues.
+- Workspace Discord alert preferences, searchable/server-filtered activity, and CSV export of visible events.
 - Discord OAuth sign-in with state validation and secure, revocable sessions.
 - Discord slash commands with autocomplete, guild-only execution, Manage Server checks, workspace ownership, and private responses.
 - Stripe Checkout, customer portal, verified/idempotent webhooks, current-state reconciliation, and server-side entitlements.
@@ -73,10 +78,11 @@ Commands:
 /rookrift players server:<selection>
 /rookrift save server:<selection>
 /rookrift broadcast server:<selection> message:<text>
+/rookrift maintenance server:<selection> enabled:true
 /rookrift dashboard
 ```
 
-The bot runs in the backend process. Registration is a separate setup command. It cannot be started from the hosted demo. Linking a community verifies your current Discord membership and Manage Server permission; expired Discord authorization requires signing in again.
+The bot runs in the backend process. Registration is a separate setup command. Re-register after upgrading to add the maintenance subcommand. It cannot be started from the hosted demo. Linking a community verifies your current Discord membership and Manage Server permission; expired Discord authorization requires signing in again.
 
 ### 3. Configure Stripe in test mode first
 
@@ -153,7 +159,7 @@ npm run build
 npm run build:demo
 ```
 
-The suite contains 18 Node backend/protocol tests and 6 dashboard interaction tests. It covers encryption and tampering, workspace isolation, CSRF, sessions, caps and downgrades, pending tasks, a local Source-RCON TCP server with fragmented packets, signed Stripe events/retries, Discord command definitions, dashboard flows, and persistent light/dark appearance. `node scripts/check-contrast.mjs` also verifies 15 text/background colour pairs per theme against a minimum 4.5:1 ratio. External integrations are mocked or exercised with a local protocol fixture. Tests are not proof of live provider compatibility.
+The suite contains 31 Node backend/protocol tests and 13 dashboard interaction tests. It covers encryption, workspace isolation, CSRF, sessions, caps/downgrades, database upgrades, bulk validation/partial failures, maintenance, alert preferences, cached player isolation, automation editing/outcomes, CSV formula escaping, a local Source-RCON TCP fixture, signed Stripe events, Discord command definitions, and dashboard workflows. `node scripts/check-contrast.mjs` also verifies 15 text/background colour pairs per theme against a minimum 4.5:1 ratio. External integrations are mocked or exercised with a local protocol fixture. Tests are not proof of live provider compatibility.
 
 Browser screenshot QA was unavailable in this environment: the browser host was unavailable, and native Firefox automation stopped because URL-policy enforcement was unsupported. Desktop/mobile layout needs a visual review before public launch. The Docker image was built and smoke-tested: health and dashboard return 200, and protected API routes return 401 before sign-in.
 
@@ -163,4 +169,4 @@ This MVP does not start/stop game-server processes, install mods, edit INI files
 
 Automations are interval-based, not cron calendars. They are claimed before running, run at most once per claim, and skip missed intervals after downtime. Monitoring is sequential per minute cycle, so large or unreachable fleets take longer. Events older than the plan retention period are pruned by the background process. Demo data is browser-local and persists until reset.
 
-See [LAUNCH.md](docs/LAUNCH.md) for a focused route from this starter to a paid pilot, [ARCHITECTURE.md](docs/ARCHITECTURE.md) for system details, and [BRAND.md](docs/BRAND.md) for the identity and image prompts.
+See [FEATURES.md](docs/FEATURES.md) for fleet operations and upgrade instructions, [LAUNCH.md](docs/LAUNCH.md) for a route to a paid pilot, [ARCHITECTURE.md](docs/ARCHITECTURE.md) for system details, and [BRAND.md](docs/BRAND.md) for the identity and image prompts.
