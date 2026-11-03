@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import {tryIdentity} from '../shared/ban-identity.js';
 export function openDatabase(filename = process.env.DATABASE_PATH || './data/rookrift.sqlite') {
   if (filename !== ':memory:') mkdirSync(dirname(filename), { recursive: true });
   const db = new DatabaseSync(filename);
@@ -22,7 +23,8 @@ export function openDatabase(filename = process.env.DATABASE_PATH || './data/roo
   const columns = {
     servers: { cluster: "TEXT NOT NULL DEFAULT ''", maintenance: 'INTEGER NOT NULL DEFAULT 0', player_list: "TEXT NOT NULL DEFAULT '[]'", notes: "TEXT NOT NULL DEFAULT ''", failed_checks: 'INTEGER NOT NULL DEFAULT 0', failed_since: 'INTEGER' },
     schedules: { last_run: 'INTEGER', last_status: 'TEXT', last_detail: 'TEXT' },
-    workspaces: { alerts_enabled: 'INTEGER NOT NULL DEFAULT 1', failure_threshold: 'INTEGER NOT NULL DEFAULT 1' },
+    workspaces: { alerts_enabled: 'INTEGER NOT NULL DEFAULT 1', failure_threshold: 'INTEGER NOT NULL DEFAULT 1',ban_sharing_enabled:'INTEGER NOT NULL DEFAULT 0',ban_public_name:"TEXT NOT NULL DEFAULT ''" },
+    moderation:{identity_kind:"TEXT NOT NULL DEFAULT 'game'",identity_key:'TEXT'},
     metrics: { latency: 'INTEGER' }
   };
   db.exec('BEGIN');
@@ -35,16 +37,21 @@ export function openDatabase(filename = process.env.DATABASE_PATH || './data/roo
       CREATE UNIQUE INDEX IF NOT EXISTS idx_one_open_incident ON incidents(server_id) WHERE resolved_at IS NULL;
       CREATE TABLE IF NOT EXISTS schedule_runs (id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL REFERENCES workspaces(id),schedule_id TEXT NOT NULL REFERENCES schedules(id) ON DELETE CASCADE,server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,started_at INTEGER NOT NULL,finished_at INTEGER NOT NULL,status TEXT NOT NULL,detail TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS moderation (id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL REFERENCES workspaces(id),server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,identifier TEXT NOT NULL,player_name TEXT NOT NULL,action TEXT NOT NULL,reason TEXT NOT NULL,actor TEXT NOT NULL,active INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL);
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_one_active_ban ON moderation(server_id,identifier) WHERE active=1;
       CREATE TABLE IF NOT EXISTS hosting_connections (server_id TEXT PRIMARY KEY REFERENCES servers(id) ON DELETE CASCADE,workspace_id TEXT NOT NULL REFERENCES workspaces(id),provider TEXT NOT NULL,origin TEXT NOT NULL,remote_id TEXT NOT NULL,api_key TEXT NOT NULL,verified_at INTEGER NOT NULL);
       CREATE INDEX IF NOT EXISTS idx_notifications_workspace ON notifications(workspace_id,created_at);
       CREATE INDEX IF NOT EXISTS idx_runs_workspace ON schedule_runs(workspace_id,finished_at);
+      CREATE TABLE IF NOT EXISTS ban_directory_reports (id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL REFERENCES workspaces(id),server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,identity_key TEXT NOT NULL,identity_kind TEXT NOT NULL,active INTEGER NOT NULL,first_reported_at INTEGER NOT NULL,last_updated_at INTEGER NOT NULL,withdrawn_at INTEGER,UNIQUE(server_id,identity_key));
     `);
     for (const [table, additions] of Object.entries(columns)) {
       const existing = new Set(db.prepare(`PRAGMA table_info(${table})`).all().map(column => column.name));
       for (const [name, definition] of Object.entries(additions)) if (!existing.has(name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
     }
-    db.exec('PRAGMA user_version=2; COMMIT');
+    for(const row of db.prepare('SELECT id,identifier FROM moderation WHERE identity_key IS NULL').all()) {const identity=tryIdentity(row.identifier);db.prepare('UPDATE moderation SET identity_kind=?,identity_key=? WHERE id=?').run(identity?.kind||'game',identity?.key||`game:${row.identifier}`,row.id);}
+    // Keep historical commands while consolidating legacy case/dash variants of one active ban.
+    db.exec(`DROP INDEX IF EXISTS idx_one_active_ban;
+      UPDATE moderation SET active=0 WHERE id IN (SELECT id FROM (SELECT id,ROW_NUMBER() OVER(PARTITION BY server_id,identity_key ORDER BY created_at DESC,id DESC) AS position FROM moderation WHERE active=1) WHERE position>1);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_one_active_identity_ban ON moderation(server_id,identity_key) WHERE active=1;`);
+    db.exec('CREATE INDEX IF NOT EXISTS idx_moderation_identity ON moderation(workspace_id,identity_key,action,active); CREATE INDEX IF NOT EXISTS idx_moderation_server_identity ON moderation(server_id,identity_key,action,created_at); CREATE INDEX IF NOT EXISTS idx_shared_ban_identity ON ban_directory_reports(identity_key,workspace_id,active); PRAGMA user_version=3; COMMIT');
   } catch (error) { db.exec('ROLLBACK'); db.close(); throw error; }
   return db;
 }

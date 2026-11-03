@@ -13,6 +13,7 @@ import { GAMES, resolveTarget } from './games.js';
 import { serverSchema, serverUpdateSchema } from './service.js';
 import { createOperations } from './operations.js';
 import { maintenanceState } from './operations-state.js';
+import { createBanDirectory } from './ban-directory.js';
 const discordFetch = async (path, token) => {
   const response = await fetch(`https://discord.com/api/v10${path}`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10000) });
   if (!response.ok) throw Object.assign(new Error('Discord authorization expired or is unavailable. Sign in again.'), { status: 401 });
@@ -21,6 +22,7 @@ const discordFetch = async (path, token) => {
 const canManage = guild => guild.owner || (BigInt(guild.permissions || 0) & 0x28n) !== 0n;
 export function createApp({ db, vault, service, billing, operations: providedOperations, getBot = () => null, env = process.env }) {
   const operations=providedOperations || createOperations(db,vault,service);
+  const banDirectory=createBanDirectory(db);
   const app = express(), origin = new URL(env.APP_URL || 'http://localhost:3000').origin;
   const secure = env.NODE_ENV === 'production';
   app.disable('x-powered-by');
@@ -81,7 +83,7 @@ export function createApp({ db, vault, service, billing, operations: providedOpe
     const activity = db.prepare('SELECT * FROM activity WHERE workspace_id=? ORDER BY created_at DESC LIMIT 100').all(ws.id);
     const invite = env.DISCORD_CLIENT_ID ? `https://discord.com/oauth2/authorize?${new URLSearchParams({ client_id: env.DISCORD_CLIENT_ID, scope: 'bot applications.commands', permissions: '19456', integration_type: '0' })}` : null;
     const entitled = servers.map((server, i) => ({ ...server, ...maintenanceState(db,server), paused: i >= plan.servers }));
-    res.set('Cache-Control', 'no-store').json({ user, workspace: { id: ws.id, name: ws.name, plan: plan.id, subscription_status: ws.subscription_status, hasBillingAccount: Boolean(ws.customer_id), guild_id: ws.guild_id, guild_name: ws.guild_name, alert_channel_id: ws.alert_channel_id, alerts_enabled: Boolean(ws.alerts_enabled),failure_threshold:ws.failure_threshold }, servers: entitled.map(s => publicServer(s, s.paused)), players: playerSnapshot(entitled), schedules, activity, templates:operations.listTemplates(ws.id),windows:operations.windows(ws.id),incidents:operations.incidents(ws.id),notifications:operations.notifications(ws.id),moderation:operations.moderation(ws.id),hosting_links:operations.hostingLinks(ws.id), metrics: { history: chart, uptime }, plans: Object.values(PLANS), games: Object.values(GAMES), csrf: req.auth.csrf, integrations: { discord: Boolean(getBot()?.isReady()), billing: billing.ready, invite } });
+    res.set('Cache-Control', 'no-store').json({ user, workspace: { id: ws.id, name: ws.name, plan: plan.id, subscription_status: ws.subscription_status, hasBillingAccount: Boolean(ws.customer_id), guild_id: ws.guild_id, guild_name: ws.guild_name, alert_channel_id: ws.alert_channel_id, alerts_enabled: Boolean(ws.alerts_enabled),failure_threshold:ws.failure_threshold }, servers: entitled.map(s => publicServer(s, s.paused)), players: playerSnapshot(entitled), schedules, activity, templates:operations.listTemplates(ws.id),windows:operations.windows(ws.id),incidents:operations.incidents(ws.id),notifications:operations.notifications(ws.id),moderation:operations.moderation(ws.id),hosting_links:operations.hostingLinks(ws.id),ban_directory:banDirectory.preferences(ws.id), metrics: { history: chart, uptime }, plans: Object.values(PLANS), games: Object.values(GAMES), csrf: req.auth.csrf, integrations: { discord: Boolean(getBot()?.isReady()), billing: billing.ready, invite } });
   });
   app.post('/api/logout', (req, res) => { db.prepare('DELETE FROM sessions WHERE token_hash=?').run(req.auth.token_hash); res.clearCookie('rookrift_session', cookieOptions).json({ ok: true }); });
   app.post('/api/servers', async (req, res) => {
@@ -124,6 +126,9 @@ export function createApp({ db, vault, service, billing, operations: providedOpe
   app.post('/api/notifications/read-all',(req,res)=>{operations.readNotification(req.workspace.id,'all');res.json({ok:true});});
   app.patch('/api/notifications/:id',(req,res)=>{operations.readNotification(req.workspace.id,req.params.id);res.json({ok:true});});
   app.post('/api/moderation',async(req,res)=>{const user=db.prepare('SELECT name FROM users WHERE id=?').get(req.auth.user_id);res.json(await operations.moderate(req.workspace.id,req.body,user.name));});
+  app.get('/api/ban-directory/bans',(req,res)=>res.set('Cache-Control','no-store').json(banDirectory.ownBans(req.workspace.id,req.query)));
+  app.post('/api/ban-directory/search',rateLimit({windowMs:60000,limit:30,keyGenerator:req=>req.auth.user_id,standardHeaders:'draft-8',legacyHeaders:false,message:{error:'Lookup limit reached. Try again in a minute.'}}),(req,res)=>res.set('Cache-Control','no-store').json(banDirectory.lookup(req.workspace.id,req.body)));
+  app.patch('/api/ban-directory/preferences',(req,res)=>res.set('Cache-Control','no-store').json(banDirectory.updatePreferences(req.workspace.id,req.body)));
   app.put('/api/servers/:id/hosting',async(req,res)=>res.json(await operations.connectHosting(req.workspace.id,req.params.id,req.body)));
   app.delete('/api/servers/:id/hosting',(req,res)=>{operations.disconnectHosting(req.workspace.id,req.params.id);res.json({ok:true});});
   app.get('/api/servers/:id/hosting',async(req,res)=>res.set('Cache-Control','no-store').json(await operations.hostingStatus(req.workspace.id,req.params.id)));

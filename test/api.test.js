@@ -21,6 +21,29 @@ async function setup(t,options={}) {
   const headers = { Cookie: 'rookrift_session=test-session', 'Content-Type': 'application/json', Origin: 'http://localhost:3000', 'X-CSRF-Token': 'test-csrf' };
   return { db, service,operations, url, headers };
 }
+test('ban directory endpoints require sessions, CSRF and exact validated IDs',async t=>{
+  const {url,headers}=await setup(t);const path=`${url}/api/ban-directory/search`,body=JSON.stringify({identifier:'0002aaaaaaaaaaaaaaaaaaaaaaaaaaaa',identity_kind:'eos'});
+  assert.equal((await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body})).status,401);
+  assert.equal((await fetch(path,{method:'POST',headers:{...headers,'X-CSRF-Token':''},body})).status,403);
+  const response=await fetch(path,{method:'POST',headers,body});assert.equal(response.status,200);assert.equal(response.headers.get('cache-control'),'no-store');assert.equal((await response.json()).community.total,0);
+  for(const input of [{identifier:'*'},{identifier:'PLAYER-1|DoExit'},{identifier:'PLAYER-1',workspace_id:'other'},{identifier:'PLAYER-1',identity_kind:'person'}])assert.equal((await fetch(path,{method:'POST',headers,body:JSON.stringify(input)})).status,400);
+  assert.equal((await fetch(path,{headers})).status,404);
+});
+test('ban directory preferences are owner-scoped, opt-in, and reject workspace overrides',async t=>{
+  const {url,headers,db}=await setup(t);db.prepare("INSERT INTO users VALUES('u2','Other',NULL,'secret')").run();db.prepare("INSERT INTO workspaces(id,owner_id,created_at) VALUES('w2','u2',1)").run();
+  const before=await (await fetch(`${url}/api/bootstrap`,{headers})).json();assert.equal(before.ban_directory.sharing_enabled,false);
+  const path=`${url}/api/ban-directory/preferences`,value={sharing_enabled:true,public_name:'Public community'};
+  assert.equal((await fetch(path,{method:'PATCH',headers,body:JSON.stringify({...value,workspace_id:'w2'})})).status,400);
+  assert.equal((await fetch(path,{method:'PATCH',headers,body:JSON.stringify(value)})).status,200);
+  assert.equal(db.prepare("SELECT ban_sharing_enabled FROM workspaces WHERE id='w2'").get().ban_sharing_enabled,0);
+  const after=await (await fetch(`${url}/api/bootstrap`,{headers})).json();assert.equal(after.ban_directory.public_name,'Public community');assert.equal(after.ban_directory.sharing_enabled,true);
+  const own=await fetch(`${url}/api/ban-directory/bans?status=all&page=1`,{headers});assert.equal(own.status,200);assert.equal(own.headers.get('cache-control'),'no-store');
+  assert.equal((await fetch(`${url}/api/ban-directory/bans?workspace_id=w2`,{headers})).status,400);
+});
+test('community lookup has an authenticated per-user rate limit',async t=>{
+  const {url,headers}=await setup(t);for(let index=0;index<30;index++){const response=await fetch(`${url}/api/ban-directory/search`,{method:'POST',headers,body:JSON.stringify({identifier:'PLAYER-001'})});assert.equal(response.status,200);}
+  const blocked=await fetch(`${url}/api/ban-directory/search`,{method:'POST',headers,body:JSON.stringify({identifier:'PLAYER-001'})});assert.equal(blocked.status,429);assert.match((await blocked.json()).error,/Lookup limit/);
+});
 test('API rejects anonymous access, expired sessions, and forged OAuth states', async t => {
   const { db, url, headers } = await setup(t);
   assert.equal((await fetch(`${url}/api/health`)).status, 200);

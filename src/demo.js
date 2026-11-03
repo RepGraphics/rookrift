@@ -1,3 +1,4 @@
+import {tryIdentity} from '../shared/ban-identity';
 import { PLANS } from '../server/plans.js';
 const now = Date.now();
 export const demoSeed = {
@@ -47,6 +48,8 @@ export function upgradeDemo(data) {
   data.incidents ??= data.servers.filter(server=>server.status==='offline').map(server=>({id:`incident-${server.id}`,server_id:server.id,server_name:server.name,opened_at:now-840000,resolved_at:null,acknowledged_at:null,notes:'Investigate the RCON connection and game host status.'}));
   data.notifications ??= {unread:data.incidents.length,items:data.incidents.map(incident=>({id:`notification-${incident.id}`,title:'RCON outage detected',detail:incident.server_name,level:'error',target:'incidents',created_at:incident.opened_at,read_at:null}))};
   data.moderation ??= [];
+  data.moderation=data.moderation.map(row=>{const identity=tryIdentity(row.identifier,row.identity_kind||'auto');return {...row,identity_kind:identity?.kind||'game',identity_key:identity?.key||null};});
+  data.ban_directory ??= {sharing_enabled:false,public_name:data.workspace.name,shared_active_reports:0,participating_communities:2};
   data.hosting_links ??= data.servers.some(server=>server.id==='d1')?[{server_id:'d1',provider:'pterodactyl',origin:'https://panel.example.com',remote_id:'demo0001',verified_at:now}]:[];
   data.host_resources ??= {d1:{state:'running',cpu:14.2,memory_bytes:4*1024**3,disk_bytes:18*1024**3,uptime_ms:68400000}};
   data.backups ??= {d1:[{id:'backup-demo-1',name:'Daily world archive',bytes:840*1024**2,created_at:new Date(now-86400000).toISOString(),completed_at:new Date(now-86400000+60000).toISOString(),status:'completed'}]};

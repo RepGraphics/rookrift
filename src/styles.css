@@ -937,6 +937,55 @@ input[type='checkbox'] { width: 16px; height: 16px; min-width: 16px; margin: 0; 
   .notification-row { padding: 15px 4px; }
 }
 
+.players-tabs { width: fit-content; margin-bottom: 24px; }
+.ban-directory { display: grid; gap: 22px; }
+.directory-heading, .directory-result-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.directory-heading h2 { font-size: 19px; letter-spacing: -.3px; }
+.directory-heading p { max-width: 660px; margin-top: 7px; font-size: 13px; line-height: 1.8; color: var(--muted); }
+.directory-scope { padding: 6px 9px; border: 1px solid var(--line); border-radius: 5px; color: var(--muted); font-size: 11px; white-space: nowrap; }
+.directory-search { padding: 22px; }
+.directory-search-fields { display: grid; grid-template-columns: minmax(200px,1fr) 150px 175px auto; gap: 14px; align-items: end; }
+.directory-search-fields .field { margin: 0; min-width: 0; }
+.directory-search-fields .button { min-height: 42px; }
+.directory-search-options { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin: 17px 0 8px; }
+.directory-check { display: flex; align-items: center; gap: 9px; color: var(--text); font-size: 13px; line-height: 1.7; cursor: pointer; }
+.directory-check input { width: 16px; height: 16px; flex-shrink: 0; accent-color: var(--accent); }
+.directory-search .footnote { margin-bottom: 0; }
+.directory-results { display: grid; gap: 20px; }
+.directory-result-heading { align-items: center; }
+.directory-result-heading h3 { font-size: 15px; margin-bottom: 8px; }
+.directory-result-heading code { font-size: 13px; overflow-wrap: anywhere; }
+.directory-result-heading p { margin-top: 9px; font-size: 12px; color: var(--muted); }
+.directory-results .panel-heading, .directory-own .panel-heading { padding: 19px 21px; border-bottom: 1px solid var(--line); }
+.directory-results .panel-heading h3, .directory-own .panel-heading h3 { font-size: 14px; font-weight: 600; }
+.directory-table { min-width: 830px; }
+.directory-table td { font-size: 12px; }
+.directory-table code { display: block; max-width: 270px; overflow-wrap: anywhere; color: var(--text); }
+.directory-status { display: inline-flex; padding: 4px 7px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface-alt); color: var(--muted); font-size: 11px; white-space: nowrap; }
+.directory-status.active { color: var(--text); border-color: var(--line-strong); background: var(--surface-hover); }
+.directory-pagination { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 15px; padding: 17px 21px; font-size: 12px; color: var(--muted); }
+.directory-own-note { padding: 0 21px 17px; }
+.directory-loading { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 30px 20px; font-size: 13px; color: var(--muted); }
+.directory-sharing summary { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 19px 21px; font-size: 13px; font-weight: 550; cursor: pointer; }
+.directory-sharing summary::after { content: '›'; margin-left: auto; font-size: 20px; color: var(--muted); }
+.directory-sharing[open] summary::after { transform: rotate(90deg); }
+.directory-sharing-state { color: var(--muted); font-size: 12px; font-weight: 400; }
+.directory-sharing form { padding: 0 21px 22px; max-width: 850px; }
+.directory-sharing p { color: var(--muted); font-size: 13px; line-height: 1.85; margin-bottom: 14px; }
+.directory-sharing .field { max-width: 400px; margin: 20px 0; }
+.directory-sharing .button-row { margin-top: 20px; }
+.directory-sharing .button-row > span { flex: 1; min-width: 220px; line-height: 1.8; }
+@media (max-width: 1150px) {
+  .directory-search-fields { grid-template-columns: minmax(180px,1fr) minmax(120px,1fr); }
+  .directory-heading { flex-wrap: wrap; gap: 12px; }
+}
+@media (max-width: 620px) {
+  .directory-search { padding: 17px; }
+  .directory-search-fields { grid-template-columns: 1fr; }
+  .directory-result-heading { flex-wrap: wrap; }
+  .directory-own .panel-heading { flex-wrap: wrap; }
+  .directory-sharing form, .directory-sharing summary { padding-left: 17px; padding-right: 17px; }
+}
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
 }

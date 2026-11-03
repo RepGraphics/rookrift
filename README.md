@@ -30,6 +30,7 @@ Open the printed address, normally http://127.0.0.1:5173. Demo changes persist i
 - Operations workspace with per-server health trends, observed availability, latency percentiles, incident acknowledgement/notes, and persistent notifications.
 - Reusable announcement templates, live placeholders, timezone-aware weekly maintenance windows, and retained automation execution history.
 - Player kick/ban/unban controls with server-reported identity checks, internal reasons, and a moderation audit trail.
+- Players ? Ban lookup: a private unified cluster ban list and exact UUID/EOSID/Steam64/game-ID lookup across opt-in communities, with game scope, withdrawn reports, pagination, and private reasons excluded from sharing. See [the ban directory guide](docs/BAN-DIRECTORY.md).
 - Verified Pterodactyl client API connections for process resources, start/stop/restart requests, and provider backup creation/status.
 - Internal server notes and configurable consecutive-failure thresholds for outage incidents.
 - Discord OAuth sign-in with state validation and secure, revocable sessions.
@@ -164,9 +165,9 @@ npm run build
 npm run build:demo
 ```
 
-The suite contains 48 Node backend/protocol tests and 24 dashboard interaction tests. Coverage includes encrypted credentials, workspace isolation, CSRF, sessions, paid limits, migrations, bulk actions, recurring windows, timezone/midnight behavior, moderation identity/command checks, Pterodactyl request mapping/confirmation, SSRF restrictions, announcements, incidents, notifications, health analytics, execution history, RCON TCP framing, and the existing billing/dashboard flows. `node scripts/check-contrast.mjs` verifies 15 text/background colour pairs per theme against a minimum 4.5:1 ratio. External integrations are mocked or exercised with a local protocol fixture. Tests are not proof of live provider compatibility.
+The suite contains 64 Node backend/protocol tests and 31 dashboard interaction tests. Coverage includes encrypted credentials, workspace isolation, CSRF, sessions, paid limits, migrations, bulk actions, recurring windows, timezone/midnight behavior, typed ban-directory lookup, opt-in sharing and opt-out visibility, shared-field filtering, withdrawal/re-ban lifecycle, pagination, legacy ban migration, moderation identity/command checks, Pterodactyl request mapping/confirmation, SSRF restrictions, announcements, incidents, notifications, health analytics, execution history, RCON TCP framing, and the existing billing/dashboard flows. `node scripts/check-contrast.mjs` verifies 15 text/background colour pairs per theme against a minimum 4.5:1 ratio. External integrations are mocked or exercised with a local protocol fixture. Tests are not proof of live provider compatibility.
 
-Browser screenshot QA was unavailable in this environment: the browser host was unavailable, and native Firefox automation stopped because URL-policy enforcement was unsupported. Desktop/mobile layout needs a visual review before public launch. The Docker image was built and smoke-tested: health and dashboard return 200, and protected API routes return 401 before sign-in.
+Browser screenshot QA was unavailable in this environment: the browser host was unavailable, and native Firefox automation stopped because URL-policy enforcement was unsupported. Desktop/mobile layout needs a visual review before public launch. The Docker image was built and smoke-tested: health and dashboard return 200, protected API routes return 401 before sign-in, and authenticated directory lookup verifies opt-in visibility, private-field filtering, and unban withdrawal.
 
 ## Scope and next steps
 
