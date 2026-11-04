@@ -16,6 +16,28 @@ jobs:
     name: Tests and production builds
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: rookrift
+          POSTGRES_DB: rookrift_test
+          POSTGRES_PASSWORD: ci-fixture-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U rookrift -d rookrift_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://rookrift:ci-fixture-only@127.0.0.1:5432/rookrift_test
+      TEST_REDIS_URL: redis://127.0.0.1:6379
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -34,3 +56,5 @@ jobs:
         run: npm run build
       - name: Build interactive demo
         run: npm run build:demo
+      - name: Production PostgreSQL and Redis smoke
+        run: npm run test:docker

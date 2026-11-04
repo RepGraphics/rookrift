@@ -1,86 +1,51 @@
-import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
-import { randomUUID } from 'node:crypto';
-import {tryIdentity} from '../shared/ban-identity.js';
-import {observePlayers} from './player-profiles.js';
-export function openDatabase(filename = process.env.DATABASE_PATH || './data/rookrift.sqlite') {
-  if (filename !== ':memory:') mkdirSync(dirname(filename), { recursive: true });
-  const db = new DatabaseSync(filename);
-  db.exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;
-    CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, name TEXT NOT NULL, avatar TEXT, access_token TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS workspaces (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL UNIQUE REFERENCES users(id), name TEXT NOT NULL DEFAULT 'My community', plan TEXT NOT NULL DEFAULT 'scout', subscription_status TEXT NOT NULL DEFAULT 'free', customer_id TEXT UNIQUE, subscription_id TEXT UNIQUE, guild_id TEXT UNIQUE, guild_name TEXT, alert_channel_id TEXT, created_at INTEGER NOT NULL);
-    CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), csrf TEXT NOT NULL, expires_at INTEGER NOT NULL);
-    CREATE TABLE IF NOT EXISTS oauth_states (state_hash TEXT PRIMARY KEY, expires_at INTEGER NOT NULL);
-    CREATE TABLE IF NOT EXISTS servers (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id), name TEXT NOT NULL, game TEXT NOT NULL CHECK(game IN ('asa','ase')), map TEXT NOT NULL, host TEXT NOT NULL, port INTEGER NOT NULL, password TEXT NOT NULL, max_players INTEGER NOT NULL DEFAULT 70, status TEXT NOT NULL DEFAULT 'unknown', players INTEGER NOT NULL DEFAULT 0, latency INTEGER, last_checked INTEGER, created_at INTEGER NOT NULL);
-    CREATE TABLE IF NOT EXISTS schedules (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id), server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE, name TEXT NOT NULL, action TEXT NOT NULL CHECK(action IN ('save','broadcast')), message TEXT NOT NULL DEFAULT '', interval_minutes INTEGER NOT NULL, next_run INTEGER NOT NULL, enabled INTEGER NOT NULL DEFAULT 1);
-    CREATE TABLE IF NOT EXISTS activity (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id), server_id TEXT, title TEXT NOT NULL, detail TEXT NOT NULL, level TEXT NOT NULL DEFAULT 'info', created_at INTEGER NOT NULL);
-    CREATE TABLE IF NOT EXISTS metrics (server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE, players INTEGER NOT NULL, online INTEGER NOT NULL, created_at INTEGER NOT NULL);
-    CREATE TABLE IF NOT EXISTS stripe_events (id TEXT PRIMARY KEY, created_at INTEGER NOT NULL);
-    CREATE INDEX IF NOT EXISTS idx_servers_workspace ON servers(workspace_id,created_at,id);
-    CREATE INDEX IF NOT EXISTS idx_activity_workspace ON activity(workspace_id,created_at);
-    CREATE INDEX IF NOT EXISTS idx_metrics_time ON metrics(server_id,created_at);`);
-  // Existing installations are upgraded in place; connection records and secrets survive.
-  const columns = {
-    servers: { cluster: "TEXT NOT NULL DEFAULT ''", maintenance: 'INTEGER NOT NULL DEFAULT 0', player_list: "TEXT NOT NULL DEFAULT '[]'", notes: "TEXT NOT NULL DEFAULT ''", failed_checks: 'INTEGER NOT NULL DEFAULT 0', failed_since: 'INTEGER' },
-    schedules: { last_run: 'INTEGER', last_status: 'TEXT', last_detail: 'TEXT' },
-    workspaces: { alerts_enabled: 'INTEGER NOT NULL DEFAULT 1', failure_threshold: 'INTEGER NOT NULL DEFAULT 1',ban_sharing_enabled:'INTEGER NOT NULL DEFAULT 0',ban_public_name:"TEXT NOT NULL DEFAULT ''" },
-    moderation:{identity_kind:"TEXT NOT NULL DEFAULT 'game'",identity_key:'TEXT'},
-    metrics: { latency: 'INTEGER' }
+import {Pool,types} from 'pg';
+import {AsyncLocalStorage} from 'node:async_hooks';
+import {randomUUID} from 'node:crypto';
+import {migrateDatabase} from './migrations.js';
+
+// Translate value placeholders; quoted strings, identifiers and comments stay literal.
+export function compileQuery(sql){
+  let text='',count=0,quote=null,line=false,block=false;
+  for(let i=0;i<sql.length;i++){
+    const c=sql[i],next=sql[i+1];
+    if(line){text+=c;if(c==='\n')line=false;continue;}
+    if(block){text+=c;if(c==='*'&&next==='/'){text+=next;i++;block=false;}continue;}
+    if(quote){text+=c;if(c===quote){if(next===quote){text+=next;i++;}else quote=null;}continue;}
+    if(c==='-'&&next==='-'){text+='--';i++;line=true;continue;}
+    if(c==='/'&&next==='*'){text+='/*';i++;block=true;continue;}
+    if(c==="'"||c==='"'){quote=c;text+=c;continue;}
+    text+=c==='?'?`$${++count}`:c;
+  }
+  return{text,count};
+}
+const numberParser=value=>{const n=Number(value);if(!Number.isFinite(n))throw new Error('Invalid database numeric value.');return n;};
+const intParser=value=>{const n=Number(value);if(!Number.isSafeInteger(n))throw new Error('Database integer exceeds JavaScript precision.');return n;};
+export async function openDatabase(connection=process.env.DATABASE_URL,options={}){
+  const testing=connection===':memory:';
+  if(testing&&!process.env.TEST_DATABASE_URL)throw new Error('TEST_DATABASE_URL is required. Run npm run test:unit for isolated PostgreSQL fixtures.');
+  if(!testing&&!connection&&!process.env.PGHOST)throw new Error('Configure DATABASE_URL or PGHOST/PGDATABASE/PGUSER/PGPASSWORD for PostgreSQL.');
+  if(connection&&connection!==':memory:'&&!/^postgres(?:ql)?:\/\//.test(connection))throw new Error('PostgreSQL requires a postgres:// URL. Use db:import-sqlite for an existing SQLite file.');
+  const schema=testing?`rookrift_test_${randomUUID().replaceAll('-','')}`:options.schema||'public';
+  if(!/^[a-z][a-z0-9_]{0,62}$/.test(schema))throw new Error('Invalid database schema.');
+  const max=Number(options.max||process.env.PG_POOL_MAX||10);
+  if(!Number.isInteger(max)||max<2||max>100)throw new Error('PG_POOL_MAX must be an integer from 2 to 100.');
+  const pool=new Pool({connectionString:testing?process.env.TEST_DATABASE_URL:connection||undefined,max,connectionTimeoutMillis:5000,idleTimeoutMillis:30000,statement_timeout:10000,application_name:'rookrift',options:`-c search_path=${schema}`,types:{getTypeParser(oid,format){return oid===20?intParser:oid===1700?numberParser:types.getTypeParser(oid,format);}}});
+  pool.on('error',()=>console.error('A PostgreSQL connection was interrupted.'));
+  const transactionContext=new AsyncLocalStorage(),compiled=new Map();let closed=false,lease=null;
+  const db={dialect:'postgres',schema,
+    query(text,values=[]){return(transactionContext.getStore()||pool).query(text,values);},
+    prepare(sql){let statement=compiled.get(sql);if(!statement){statement=compileQuery(sql);if(compiled.size>=512)compiled.delete(compiled.keys().next().value);compiled.set(sql,statement);}const execute=async args=>{if(statement.count!==args.length)throw new Error(`Expected ${statement.count} database parameters; received ${args.length}.`);return db.query(statement.text,args);};return{all:async(...args)=>(await execute(args)).rows,get:async(...args)=>(await execute(args)).rows[0],run:async(...args)=>{const result=await execute(args);return{changes:result.rowCount};}};},
+    async exec(sql){if(/^\s*(BEGIN|COMMIT|ROLLBACK)\b/i.test(sql))throw new Error('Use db.transaction() for connection-bound transactions.');await db.query(sql);},
+    async transaction(callback){if(transactionContext.getStore())return callback();const client=await pool.connect();try{await client.query('BEGIN');const result=await transactionContext.run(client,callback);await client.query('COMMIT');return result;}catch(error){await client.query('ROLLBACK').catch(()=>{});throw error;}finally{client.release();}},
+    withWorkspaceLock(id,callback){return db.transaction(async()=>{const row=await db.prepare('SELECT id FROM workspaces WHERE id=? FOR UPDATE').get(id);if(!row)throw Object.assign(new Error('Workspace not found.'),{status:404});return callback();});},
+    async acquireRuntimeLock(onLost=()=>{}){if(lease)throw new Error('Runtime lease already held.');const client=await pool.connect();try{const result=await client.query('SELECT pg_try_advisory_lock(93002,hashtext(current_schema())) AS locked');if(!result.rows[0].locked)throw new Error('Another Rookrift runtime is active. Run one application replica.');client.on('error',onLost);lease={client,onLost};}catch(error){client.release();throw error;}},
+    async withMaintenanceLock(callback){const client=await pool.connect();let locked=false;const onError=()=>{};client.on('error',onError);try{locked=(await client.query('SELECT pg_try_advisory_lock(93002,hashtext(current_schema())) AS locked')).rows[0].locked;if(!locked)throw new Error('Stop the Rookrift runtime before importing data.');await client.query('BEGIN');const result=await transactionContext.run(client,callback);await client.query('COMMIT');return result;}catch(error){await client.query('ROLLBACK').catch(()=>{});throw error;}finally{if(locked)await client.query('SELECT pg_advisory_unlock(93002,hashtext(current_schema()))').catch(()=>{});client.off('error',onError);client.release();}},
+    async ping(){await db.query('SELECT 1');},
+    async close(){if(closed)return;closed=true;if(lease){const{client,onLost}=lease;client.off('error',onLost);await client.query('SELECT pg_advisory_unlock(93002,hashtext(current_schema()))').catch(()=>{});client.release();lease=null;}try{if(testing)await pool.query(`DROP SCHEMA "${schema}" CASCADE`);}finally{await pool.end();}}
   };
-  db.exec('BEGIN');
-  try {
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS announcement_templates (id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL REFERENCES workspaces(id),name TEXT NOT NULL,body TEXT NOT NULL,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL);
-      CREATE TABLE IF NOT EXISTS maintenance_windows (id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL REFERENCES workspaces(id),name TEXT NOT NULL,server_ids TEXT NOT NULL,days TEXT NOT NULL,start_time TEXT NOT NULL,duration_minutes INTEGER NOT NULL,time_zone TEXT NOT NULL,enabled INTEGER NOT NULL DEFAULT 1,created_at INTEGER NOT NULL);
-      CREATE TABLE IF NOT EXISTS notifications (id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL REFERENCES workspaces(id),title TEXT NOT NULL,detail TEXT NOT NULL,level TEXT NOT NULL,target TEXT NOT NULL,source_key TEXT UNIQUE,created_at INTEGER NOT NULL,read_at INTEGER);
-      CREATE TABLE IF NOT EXISTS incidents (id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL REFERENCES workspaces(id),server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,opened_at INTEGER NOT NULL,resolved_at INTEGER,acknowledged_at INTEGER,notes TEXT NOT NULL DEFAULT '');
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_one_open_incident ON incidents(server_id) WHERE resolved_at IS NULL;
-      CREATE TABLE IF NOT EXISTS schedule_runs (id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL REFERENCES workspaces(id),schedule_id TEXT NOT NULL REFERENCES schedules(id) ON DELETE CASCADE,server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,started_at INTEGER NOT NULL,finished_at INTEGER NOT NULL,status TEXT NOT NULL,detail TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS moderation (id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL REFERENCES workspaces(id),server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,identifier TEXT NOT NULL,player_name TEXT NOT NULL,action TEXT NOT NULL,reason TEXT NOT NULL,actor TEXT NOT NULL,active INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL);
-      CREATE TABLE IF NOT EXISTS hosting_connections (server_id TEXT PRIMARY KEY REFERENCES servers(id) ON DELETE CASCADE,workspace_id TEXT NOT NULL REFERENCES workspaces(id),provider TEXT NOT NULL,origin TEXT NOT NULL,remote_id TEXT NOT NULL,api_key TEXT NOT NULL,verified_at INTEGER NOT NULL);
-      CREATE INDEX IF NOT EXISTS idx_notifications_workspace ON notifications(workspace_id,created_at);
-      CREATE INDEX IF NOT EXISTS idx_runs_workspace ON schedule_runs(workspace_id,finished_at);
-      CREATE TABLE IF NOT EXISTS ban_directory_reports (id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL REFERENCES workspaces(id),server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,identity_key TEXT NOT NULL,identity_kind TEXT NOT NULL,active INTEGER NOT NULL,first_reported_at INTEGER NOT NULL,last_updated_at INTEGER NOT NULL,withdrawn_at INTEGER,UNIQUE(server_id,identity_key));
-      CREATE TABLE IF NOT EXISTS workspace_members (id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL REFERENCES workspaces(id),user_id TEXT NOT NULL REFERENCES users(id),role TEXT NOT NULL CHECK(role IN ('admin','moderator','viewer')),server_ids TEXT,created_at INTEGER NOT NULL,UNIQUE(workspace_id,user_id));
-      CREATE TABLE IF NOT EXISTS team_invitations (id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL REFERENCES workspaces(id),discord_user_id TEXT NOT NULL,role TEXT NOT NULL CHECK(role IN ('admin','moderator','viewer')),server_ids TEXT,token_hash TEXT NOT NULL UNIQUE,created_at INTEGER NOT NULL,expires_at INTEGER NOT NULL,accepted_at INTEGER,revoked_at INTEGER);
-      CREATE TABLE IF NOT EXISTS session_workspaces (token_hash TEXT PRIMARY KEY REFERENCES sessions(token_hash) ON DELETE CASCADE,workspace_id TEXT NOT NULL REFERENCES workspaces(id));
-      CREATE TABLE IF NOT EXISTS staff_audit (id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL REFERENCES workspaces(id),user_id TEXT NOT NULL,actor TEXT NOT NULL,action TEXT NOT NULL,resource_id TEXT,server_id TEXT,created_at INTEGER NOT NULL);
-      CREATE INDEX IF NOT EXISTS idx_members_user ON workspace_members(user_id,created_at,id);
-      CREATE INDEX IF NOT EXISTS idx_staff_audit ON staff_audit(workspace_id,created_at);
-      CREATE TABLE IF NOT EXISTS player_profiles (id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL REFERENCES workspaces(id),identity_key TEXT NOT NULL,identity_kind TEXT NOT NULL,game TEXT NOT NULL,created_at INTEGER NOT NULL,UNIQUE(workspace_id,identity_key,game));
-      CREATE TABLE IF NOT EXISTS player_observations (profile_id TEXT NOT NULL REFERENCES player_profiles(id) ON DELETE CASCADE,server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,display_name TEXT NOT NULL,first_seen INTEGER NOT NULL,last_seen INTEGER NOT NULL,last_checked INTEGER NOT NULL,sightings INTEGER NOT NULL,online INTEGER NOT NULL,PRIMARY KEY(profile_id,server_id));
-      CREATE TABLE IF NOT EXISTS player_notes (id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL REFERENCES workspaces(id),profile_id TEXT NOT NULL REFERENCES player_profiles(id) ON DELETE CASCADE,server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,body TEXT NOT NULL,author_id TEXT NOT NULL,author_name TEXT NOT NULL,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL);
-      CREATE INDEX IF NOT EXISTS idx_player_notes ON player_notes(profile_id,created_at);
-    `);
-    for (const [table, additions] of Object.entries(columns)) {
-      const existing = new Set(db.prepare(`PRAGMA table_info(${table})`).all().map(column => column.name));
-      for (const [name, definition] of Object.entries(additions)) if (!existing.has(name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
-    }
-    for(const row of db.prepare('SELECT id,identifier FROM moderation WHERE identity_key IS NULL').all()) {const identity=tryIdentity(row.identifier);db.prepare('UPDATE moderation SET identity_kind=?,identity_key=? WHERE id=?').run(identity?.kind||'game',identity?.key||`game:${row.identifier}`,row.id);}
-    // Keep historical commands while consolidating legacy case/dash variants of one active ban.
-    db.exec(`DROP INDEX IF EXISTS idx_one_active_ban;
-      UPDATE moderation SET active=0 WHERE id IN (SELECT id FROM (SELECT id,ROW_NUMBER() OVER(PARTITION BY server_id,identity_key ORDER BY created_at DESC,id DESC) AS position FROM moderation WHERE active=1) WHERE position>1);
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_one_active_identity_ban ON moderation(server_id,identity_key) WHERE active=1;`);
-    for(const server of db.prepare("SELECT * FROM servers WHERE status='online' AND last_checked IS NOT NULL AND NOT EXISTS(SELECT 1 FROM player_observations o WHERE o.server_id=servers.id)").all()){let lines;try{lines=JSON.parse(server.player_list);}catch{lines=[];}if(Array.isArray(lines))observePlayers(db,server,lines,server.last_checked);}
-    db.exec('CREATE INDEX IF NOT EXISTS idx_moderation_identity ON moderation(workspace_id,identity_key,action,active); CREATE INDEX IF NOT EXISTS idx_moderation_server_identity ON moderation(server_id,identity_key,action,created_at); CREATE INDEX IF NOT EXISTS idx_shared_ban_identity ON ban_directory_reports(identity_key,workspace_id,active); PRAGMA user_version=4; COMMIT');
-  } catch (error) { db.exec('ROLLBACK'); db.close(); throw error; }
-  return db;
+  try{if(testing)await db.query(`CREATE SCHEMA "${schema}"`);await migrateDatabase(db);return db;}catch(error){await db.close().catch(()=>{});throw error;}
 }
-export const listServers = (db, workspaceId) => db.prepare('SELECT * FROM servers WHERE workspace_id=? ORDER BY created_at,id').all(workspaceId);
-export function publicServer(row, paused = false) {
-  const { password, workspace_id, player_list, ...server } = row;
-  return { ...server, maintenance: Boolean(server.maintenance), paused };
-}
-export function playerSnapshot(servers) {
-  return servers.filter(server => server.status === 'online' && !server.paused).flatMap(server => {
-    let players; try { players = JSON.parse(server.player_list || '[]'); } catch { players = []; }
-    return (Array.isArray(players) ? players : []).slice(0, 1000).filter(line => typeof line === 'string').map((line, index) => {
-      const separator = line.lastIndexOf(',');
-      return { id: `${server.id}:${index}`, name: separator > -1 ? line.slice(0, separator).trim() : line, identifier: separator > -1 ? line.slice(separator + 1).trim() : '', server_id: server.id, server_name: server.name, game: server.game, cluster: server.cluster, checked_at: server.last_checked };
-    });
-  });
-}
-export function audit(db, workspace, title, detail, level = 'info', server = null) {
-  db.prepare('INSERT INTO activity VALUES(?,?,?,?,?,?,?)').run(randomUUID(), workspace, server, title, detail.slice(0, 1500), level, Date.now());
-}
+export const listServers=async(db,workspaceId)=>db.prepare('SELECT * FROM servers WHERE workspace_id=? ORDER BY created_at,id').all(workspaceId);
+export function publicServer(row,paused=false){const{password,workspace_id,player_list,...server}=row;return{...server,maintenance:Boolean(server.maintenance),paused};}
+export function playerSnapshot(servers){return servers.filter(server=>server.status==='online'&&!server.paused).flatMap(server=>{let players;try{players=JSON.parse(server.player_list||'[]');}catch{players=[];}return(Array.isArray(players)?players:[]).slice(0,1000).filter(line=>typeof line==='string').map((line,index)=>{const separator=line.lastIndexOf(',');return{id:`${server.id}:${index}`,name:separator>-1?line.slice(0,separator).trim():line,identifier:separator>-1?line.slice(separator+1).trim():'',server_id:server.id,server_name:server.name,game:server.game,cluster:server.cluster,checked_at:server.last_checked};});});}
+export async function audit(db,workspace,title,detail,level='info',server=null){await db.prepare('INSERT INTO activity VALUES(?,?,?,?,?,?,?)').run(randomUUID(),workspace,server,title,detail.slice(0,1500),level,Date.now());}

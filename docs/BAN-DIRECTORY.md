@@ -1,5 +1,7 @@
 # Unified ban directory
 
+Release 0.6 stores the directory in PostgreSQL. For a previous SQLite installation, use the explicit [Dokploy and database migration guide](DOKPLOY.md); the legacy schema-v3 notes below describe the earlier SQLite upgrade only.
+
 Open **Players → Ban lookup**, or choose **Check bans** beside a connected player to prefill the identifier. This feature is included in all plans; it does not consume an extra server slot or change the current plan’s server limits.
 
 The private **Your cluster ban list** groups the workspace’s Rookrift ban records by identifier, cluster, and game, with active-server counts and first/last report dates. Filter by game and active/withdrawn status. Results are paginated in groups of 25 and cover all retained moderation records, including records beyond the 200-command moderation-history view. Servers without a cluster remain separate entries.
@@ -40,4 +42,4 @@ All routes require a session. Mutations and lookup POSTs require the existing sa
 
 Before upgrade, stop the single app process and take a consistent database/WAL backup plus the encryption-key backup. Schema version 3 adds sharing preferences, typed moderation keys, and the shared-report table/indexes. Existing sharing defaults to disabled. Migration retains historical command rows and private reasons, infers legacy ID types using the documented auto-detect rules, and consolidates duplicate active case/dash variants into the most recent active row. All duplicates remain in command history. Compact UUIDs cannot be inferred from legacy untyped 32-hex values; review those records against the actual game-reported ID type before opting into sharing. Do not run mixed application versions against the same database.
 
-The directory is stored in this installation’s SQLite database and uses its existing backups/access controls. It is designed for the documented single-process deployment. No public or third-party ban feed is configured.
+The directory is stored in this installation’s PostgreSQL database and uses its existing backups/access controls. It is designed for the documented single-process deployment. No public or third-party ban feed is configured.

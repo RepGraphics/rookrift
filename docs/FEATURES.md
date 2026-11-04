@@ -42,7 +42,7 @@ Open **Players** for the latest reported names and IDs across online servers all
 
 Rows show their check time. They are snapshots from `ListPlayers`, not a continuous connection stream or a join/leave history. Offline and plan-paused servers are excluded. Names and identifiers are supplied by the game server and displayed as text. Sample identifiers in the demo begin with `DEMO-`.
 
-The connected-player table uses the latest per-server snapshot, replacing it after each successful check and clearing it on failed connectivity or credential changes. Version 0.5 also stores persistent typed sightings and private notes under Players ? Player profiles; see [the teams and players guide](TEAM-AND-PLAYERS.md). These records are owner-visible through the authenticated dashboard; no public player directory is created.
+The connected-player table uses the latest per-server snapshot, replacing it after each successful check and clearing it on failed connectivity or credential changes. Version 0.5 also stores persistent typed sightings and private notes under Players > Player profiles; see [the teams and players guide](TEAM-AND-PLAYERS.md). These records are owner-visible through the authenticated dashboard; no public player directory is created.
 
 ## Edit, run, and inspect automations
 
@@ -60,6 +60,6 @@ Under **Activity log**, combine level, server, and text filters. **Export visibl
 
 ## Upgrading an existing installation
 
-Stop the previous single-process deployment, back up the SQLite database/WAL and encryption key, and rebuild from the new source. Startup adds the required columns without deleting existing records or changing encryption keys. Re-running startup is safe. Do not run multiple old and new application replicas against the same SQLite database. Register the Discord commands again, then verify a test connection, one scheduled action, maintenance, and an alert before resuming normal use.
+For release 0.6, use the PostgreSQL deployment and explicit SQLite import procedure in [DOKPLOY.md](DOKPLOY.md). Keep the original encryption key, stop the old application before taking its consistent snapshot, and do not run old/new backends against separate stores simultaneously. Register commands again and verify a test connection, task, maintenance and alert.
 
 Existing demo workspaces are upgraded locally with group names, snapshot data, and default alert settings, preserving your prior server and automation edits.

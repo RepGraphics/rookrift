@@ -6,7 +6,8 @@ flowchart LR
   Discord[Discord gateway / slash commands] --> Bot[discord.js bot]
   Bot --> Service[Shared workspace service]
   API --> Service
-  Service --> DB[(SQLite)]
+  Service --> DB[(PostgreSQL)]
+  API --> Cache[Redis metric cache]
   Service --> RCON[ASA / ASE Source RCON]
   Scheduler[Persisted interval scheduler] --> Service
   API --> OAuth[Discord OAuth]
@@ -21,7 +22,7 @@ Each Discord identity owns one workspace and can join others through a target-bo
 
 Resource mutations do not accept a workspace or actor override. A dedicated CSRF-protected workspace-switch route validates access and records a selection per login session; subsequent requests recheck that membership. Server deletion and controls resolve the target within that workspace and granted scope before side effects. Paid access comes from current subscription status and configured current/legacy entitled prices. Checkout additionally validates the advertised GBP amount and monthly interval. Unknown prices and non-active payment statuses use the free plan.
 
-RCON and Discord access tokens are encrypted with AES-256-GCM and random IVs. Browser sessions use random 256-bit opaque tokens whose hashes are stored in SQLite. Production cookies use Secure, HttpOnly, and SameSite=Lax. OAuth state is hashed, short-lived, bound to a browser cookie, and consumed once. Mutating authenticated requests require an exact Origin and CSRF header. No encryption key is shipped to the browser.
+RCON and Discord access tokens are encrypted with AES-256-GCM and random IVs. Browser sessions use random 256-bit opaque tokens whose hashes are stored in PostgreSQL. Production cookies use Secure, HttpOnly, and SameSite=Lax. OAuth state is hashed, short-lived, bound to a browser cookie, and claimed once through an atomic DELETE RETURNING. Mutating authenticated requests require an exact Origin and CSRF header. No encryption key is shipped to the browser.
 
 Public target validation rejects loopback, link-local, private, multicast, and reserved IP ranges unless an operator opts into private connectivity. DNS results are validated and pinned. In production, enforce network egress rules in addition to application validation. A compromised host must not have unrestricted access to internal infrastructure.
 
@@ -39,7 +40,11 @@ Maintenance is an operational preference, not a game-process state. Scheduler at
 
 CSV generation is shared and tested independently. It exports only visible activity records, escapes quoted cells, and neutralizes formula prefixes rather than exposing an executable spreadsheet payload. Browser components for fleet tools and common controls live in `src/features.jsx` and `src/ui.jsx`.
 
-Scaling boundaries: one process, one SQLite store, sequential poll cycles, local command locks. Use PostgreSQL plus a queue and distributed job claims before multiple replicas. A production operation also needs monitoring, external uptime checks, restore drills, incident response, account deletion/export handling, and dependency maintenance.
+`server/db.js` provides pooled asynchronous PostgreSQL queries and connection-bound transactions through AsyncLocalStorage. Workspace row locks serialize quota checks/inserts; all nested transaction work uses the same client. PostgreSQL migrations are versioned in `schema_migrations`. Snapshot profiles and observations use batched writes. `server/import-sqlite.js` streams a read-only schema-v4 SQLite snapshot into an empty destination, verifies counts and preserves ciphertexts under a maintenance lease and one transaction. See [DOKPLOY.md](DOKPLOY.md).
+
+`server/cache.js` caches only health-chart aggregates for 15 seconds. Permission/entitlement checks run before cache lookup and incident notes are loaded fresh. Cache commands have bounded waits and a circuit breaker; failures fall back to PostgreSQL. There is no role, note, ban, sharing-preference, payment or session cache.
+
+Scaling boundaries remain one Discord/scheduler runtime with local game-command locks. PostgreSQL advisory leases enforce that boundary, including stop-first deployments. Multi-replica workers need a separate queue/job design. PostgreSQL and Redis improve request I/O and aggregation costs without implicitly distributing the scheduler.
 
 `server/operations.js` provides owner-scoped announcement templates, windows, metrics, incidents, notifications, moderation, execution-history reads, and hosting links. `server/operations-state.js` shares monitoring/maintenance behavior with the scheduler; pure wall-clock and template helpers live under `shared/operations.js`. Outage counters open one incident after the configured consecutive-failure threshold and reset during maintenance/recovery. Notifications are persistent records, separate from Discord delivery.
 

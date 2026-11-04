@@ -1,6 +1,6 @@
 {
   "name": "rookrift",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -16,8 +16,11 @@
     "start": "node --env-file-if-exists=.env server/index.js",
     "test": "npm run test:unit && npm run test:ui",
     "bot:register": "node --env-file-if-exists=.env server/register-commands.js",
-    "test:unit": "node --test test/*.test.js",
-    "test:ui": "vitest run"
+    "test:unit": "node scripts/test-postgres.mjs",
+    "test:ui": "vitest run",
+    "db:migrate": "node --env-file-if-exists=.env scripts/database.mjs migrate",
+    "db:import-sqlite": "node --env-file-if-exists=.env scripts/database.mjs import-sqlite",
+    "test:docker": "node scripts/smoke-production.mjs"
   },
   "dependencies": {
     "cookie-parser": "^1.4.7",
@@ -30,7 +33,9 @@
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "stripe": "^20.0.0",
-    "zod": "^4.1.12"
+    "zod": "^4.1.12",
+    "pg": "^8.23.1",
+    "redis": "^6.3.1"
   },
   "devDependencies": {
     "@testing-library/react": "^16.3.3",

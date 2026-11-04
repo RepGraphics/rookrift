@@ -4,6 +4,8 @@
 
 This is a runnable MVP starter, with working backend integrations that require your credentials. The hosted Site is an **interactive, browser-local demo**, separate from the live backend. It does not connect to real servers, run a Discord bot, or collect payments. A real service needs a continuously running Node host with outbound TCP access; a static website or Cloudflare Worker cannot run this process.
 
+Production storage uses **PostgreSQL 18**, with optional **Redis 8** chart caching. For your deployment, follow the [Dokploy setup and SQLite migration guide](docs/DOKPLOY.md). Existing SQLite data needs an explicit import with its original encryption key before starting the new backend.
+
 The product direction is an affordable ARK-first service covering the daily workflows found in GameServerApp: player administration, automation, host controls, team access, and community tools. The [product comparison and roadmap](docs/PRODUCT-DIRECTION.md) records current capabilities, remaining gaps, and delivery priorities. Persistent profiles, private staff notes, dashboard teams, and the lower-priced bundles are now implemented; see [the teams and players guide](docs/TEAM-AND-PLAYERS.md).
 
 ## Try the dashboard
@@ -41,7 +43,8 @@ Open the printed address, normally http://127.0.0.1:5173. Demo changes persist i
 - Discord OAuth sign-in with state validation and secure, revocable sessions.
 - Discord slash commands with autocomplete, guild-only execution, Manage Server checks, workspace ownership, and private responses.
 - Stripe Checkout, customer portal, verified/idempotent webhooks, current-state reconciliation, and server-side entitlements.
-- SQLite persistence, encrypted RCON and Discord tokens, CSRF protection, rate limits, input validation, and private-network target protection.
+- Pooled asynchronous PostgreSQL persistence, transactional quota checks, batched player snapshots, optional Redis chart caching with database fallback, and a read-only SQLite importer.
+- Encrypted RCON and Discord tokens, CSRF protection, rate limits, input validation, and private-network target protection.
 - Docker deployment and reverse-proxy example.
 - Generated logo, PNG/ICO favicons, touch icon, landscape art, and locally hosted fonts.
 
@@ -69,6 +72,8 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 Put the generated value into `ENCRYPTION_KEY` in `.env`. Keep it stable and back it up separately from the database; changing it makes existing encrypted passwords unreadable. Never commit `.env` or paste credentials into chat.
 
 Set `APP_URL` to your exact origin. For an initial local live build use `http://localhost:3000`, `NODE_ENV=development`, and the matching Discord redirect URI. For production use your HTTPS origin and `NODE_ENV=production`.
+
+Set `DATABASE_URL` to your PostgreSQL connection URL. In Dokploy, use its internal PostgreSQL URL; `REDIS_URL` optionally enables Redis. For the bundled Compose stack, fill in `POSTGRES_PASSWORD` and `REDIS_PASSWORD` and leave `DATABASE_URL` empty to use its internal database service. The [Dokploy guide](docs/DOKPLOY.md) covers both approaches and local backend development.
 
 ### 2. Create your Discord application
 
@@ -150,17 +155,17 @@ Only public RCON targets are permitted by default. `ALLOW_PRIVATE_RCON=true` is 
 
 ## Production deployment
 
-Use a VPS/container host that supports persistent disk, outbound TCP, and a continuously running process. The first deployment should be one replica because the scheduler, server command locks, and SQLite writes are managed by that process.
+Use a continuously running Node/container host with outbound TCP and access to PostgreSQL. Dokploy can manage PostgreSQL and Redis as separate services; follow [DOKPLOY.md](docs/DOKPLOY.md). Use one application replica and stop-first deployments because the scheduler, Discord gateway and command locks remain in that runtime. A PostgreSQL advisory lease rejects duplicate active runtimes.
 
 1. Set the HTTPS `APP_URL`, matching Discord redirect, all required keys, and `TRUST_PROXY_HOPS=1` if exactly one trusted reverse proxy sits in front of the app.
 2. Run `docker compose up -d --build`.
 3. Route your domain through an HTTPS reverse proxy to `127.0.0.1:3000`; see [Caddyfile.example](docs/Caddyfile.example).
 4. Run command registration from the configured environment, or `docker compose exec rookrift node server/register-commands.js`.
-5. Back up the persistent volume and encryption key. Verify restoration before launch. Use SQLite's online backup API or stop the app for a consistent copy of the database and WAL files.
+5. Configure PostgreSQL backups and keep the encryption key separately. Verify restoration before launch. When migrating from SQLite, stop the old app and follow the explicit importer steps in the Dokploy guide.
 
-The container binds the application port to host loopback. Secrets are injected through `.env`, never baked into the image. Health: `GET /api/health`. This reports HTTP availability only, not the health of every integration.
+The standalone Compose stack binds the application port to host loopback and keeps both databases off public host ports. Secrets are injected through environment variables, never baked into the image. `GET /api/health` reports HTTP liveness; `/api/ready` checks PostgreSQL and reports optional cache status. Redis failure alone does not fail readiness. Neither endpoint verifies every external integration.
 
-At larger scale, move storage to PostgreSQL, put RCON jobs behind a queue, add distributed locks and per-tenant quotas, and run multiple gateway workers with a deliberate Discord sharding strategy. Do not scale this SQLite process horizontally as-is.
+PostgreSQL is now the primary store. Multi-replica application workers still need a separate queue/worker design and a deliberate Discord gateway strategy. Redis currently caches disposable aggregates and does not provide distributed job execution.
 
 ## Verification
 
@@ -168,9 +173,10 @@ At larger scale, move storage to PostgreSQL, put RCON jobs behind a queue, add d
 npm test
 npm run build
 npm run build:demo
+npm run test:docker
 ```
 
-The suite contains 83 Node backend/protocol tests and 43 dashboard interaction tests. It covers team invitation/account binding, revocation, viewer mutation restrictions, scoped bootstrap/profile/note/ban visibility, note authorship, persistent sightings and upgrade seeding, affordable entitlements, Stripe price mismatch protection and legacy IDs, plus the existing encryption, billing, RCON, operations, and dashboard flows. `node scripts/check-contrast.mjs` verifies 15 text/background colour pairs per theme against a minimum 4.5:1 ratio. External integrations are mocked or exercised with a local protocol fixture. Tests are not proof of live provider compatibility.
+The 95 backend tests run against real PostgreSQL and Redis services. `npm run test:unit` starts temporary Docker fixtures automatically, or uses `TEST_DATABASE_URL` and `TEST_REDIS_URL`. Each fixture uses its own PostgreSQL schema. Coverage includes transaction rollback/isolation, concurrent quotas, runtime leases, SQLite import preservation/rollback, Redis expiry/failure fallback, fresh permissions/incident notes, and existing team, billing, RCON and operations behavior. The dashboard has 43 interaction tests. `node scripts/check-contrast.mjs` verifies 15 text/background colour pairs per theme against a minimum 4.5:1 ratio. Discord, Stripe and game-provider calls use fixtures and still need real integration testing.
 
 Browser screenshot QA remains unavailable because the browser access host is unavailable. Desktop/mobile layout needs a visual review before public launch. The Docker image is built and smoke-tested with authenticated API checks; external Discord, Stripe and game-provider behavior still requires live integration testing.
 

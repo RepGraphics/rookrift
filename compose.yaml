@@ -6,11 +6,53 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
-      DATABASE_PATH: /app/data/rookrift.sqlite
+      DATABASE_URL: ${DATABASE_URL:-}
+      PGHOST: postgres
+      PGPORT: 5432
+      PGDATABASE: rookrift
+      PGUSER: rookrift
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      PG_POOL_MAX: ${PG_POOL_MAX:-10}
+      REDIS_URL: redis://redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD}
     ports:
       - "127.0.0.1:3000:3000"
-    volumes:
-      - rookrift-data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     stop_grace_period: 3m
+    deploy:
+      replicas: 1
+      update_config:
+        parallelism: 1
+        order: stop-first
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: rookrift
+      POSTGRES_USER: rookrift
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    volumes:
+      - rookrift-postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rookrift -d rookrift"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD}
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?Set REDIS_PASSWORD}
+    command: ["/bin/sh", "-c", 'exec redis-server --requirepass "$$REDIS_PASSWORD" --maxmemory 128mb --maxmemory-policy allkeys-lru --save "" --appendonly no']
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
 volumes:
-  rookrift-data:
+  rookrift-postgres:

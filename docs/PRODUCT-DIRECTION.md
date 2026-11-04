@@ -64,7 +64,7 @@ Create a public cluster/status page, rules, applications and staff review. Next,
 
 ### 5. Broaden only after ARK retention improves
 
-Add the host agent and mod lifecycle where customer demand supports their maintenance cost. Ship DayZ through a tested BattlEye adapter, with its own capability checks and pilot communities. Expand beyond the current single-process SQLite deployment before promising multi-worker scale.
+Add the host agent and mod lifecycle where customer demand supports their maintenance cost. Ship DayZ through a tested BattlEye adapter, with its own capability checks and pilot communities. Version 0.6 adds PostgreSQL and optional Redis metric caching; distributed jobs/gateway workers remain a separate step before multi-worker scale.
 
 ## Measure the outcome
 
