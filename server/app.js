@@ -1,3 +1,7 @@
+import {createTeam,staffAudit} from './team.js';
+import {authorizeRequest} from './access.js';
+import {buildDashboard} from './dashboard.js';
+import {createPlayerProfiles} from './player-profiles.js';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
@@ -22,7 +26,7 @@ const discordFetch = async (path, token) => {
 const canManage = guild => guild.owner || (BigInt(guild.permissions || 0) & 0x28n) !== 0n;
 export function createApp({ db, vault, service, billing, operations: providedOperations, getBot = () => null, env = process.env }) {
   const operations=providedOperations || createOperations(db,vault,service);
-  const banDirectory=createBanDirectory(db);
+  const banDirectory=createBanDirectory(db),team=createTeam(db),profiles=createPlayerProfiles(db);
   const app = express(), origin = new URL(env.APP_URL || 'http://localhost:3000').origin;
   const secure = env.NODE_ENV === 'production';
   app.disable('x-powered-by');
@@ -67,24 +71,29 @@ export function createApp({ db, vault, service, billing, operations: providedOpe
     const session = sessionToken && db.prepare('SELECT * FROM sessions WHERE token_hash=? AND expires_at>?').get(hash(sessionToken), Date.now());
     if (!session) { res.status(401).json({ error: 'Sign in with Discord to continue.' }); return; }
     req.auth = session;
-    req.workspace = db.prepare('SELECT * FROM workspaces WHERE owner_id=?').get(session.user_id);
+    res.set('Cache-Control','no-store');
+    req.user=db.prepare('SELECT id,name,avatar FROM users WHERE id=?').get(session.user_id);
+    const context=team.resolve(session);req.workspace=context.workspace;req.access=context.access;
     if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && (req.get('Origin') !== origin || req.get('X-CSRF-Token') !== session.csrf)) { res.status(403).json({ error: 'Request verification failed. Refresh the dashboard.' }); return; }
+    authorizeRequest(db,req);
+    if(!['GET','HEAD','OPTIONS'].includes(req.method)&&/^\/(servers|schedules|templates|maintenance-windows|incidents|moderation)(\/|$)/.test(req.path)){const action=req.method+' '+req.path,workspace=req.workspace.id,user=req.user,server=req.body?.server_id||null;res.on('finish',()=>{if(res.statusCode<300)staffAudit(db,workspace,user,action,null,server);});}
     next();
   });
-  app.get('/api/bootstrap', (req, res) => {
-    const ws = req.workspace, plan = effectivePlan(ws), servers = listServers(db, ws.id);
-    const user = db.prepare('SELECT id,name,avatar FROM users WHERE id=?').get(req.auth.user_id);
-    const schedules = db.prepare('SELECT * FROM schedules WHERE workspace_id=? ORDER BY rowid').all(ws.id).map((s, i) => ({ ...s, paused: i >= plan.schedules || !servers.slice(0, plan.servers).some(server => server.id === s.server_id) }));
-    const history = db.prepare('SELECT CAST(m.created_at/3600000 AS INTEGER)*3600000 AS time, SUM(m.players) AS players,COUNT(*) AS samples FROM metrics m JOIN servers s ON m.server_id=s.id WHERE s.workspace_id=? AND m.created_at>? GROUP BY time ORDER BY time').all(ws.id, Date.now() - 86400000);
-    const uptime = db.prepare('SELECT AVG(m.online)*100 AS value FROM metrics m JOIN servers s ON m.server_id=s.id WHERE s.workspace_id=? AND m.created_at>?').get(ws.id, Date.now() - 86400000).value;
-    // Bucket average across polling cycles instead of summing repeated player samples.
-    const activeCount = Math.max(1, Math.min(servers.length, plan.servers));
-    const chart = history.map(h => ({ time: h.time, players: Math.round(h.players / Math.max(1, h.samples / activeCount)) }));
-    const activity = db.prepare('SELECT * FROM activity WHERE workspace_id=? ORDER BY created_at DESC LIMIT 100').all(ws.id);
-    const invite = env.DISCORD_CLIENT_ID ? `https://discord.com/oauth2/authorize?${new URLSearchParams({ client_id: env.DISCORD_CLIENT_ID, scope: 'bot applications.commands', permissions: '19456', integration_type: '0' })}` : null;
-    const entitled = servers.map((server, i) => ({ ...server, ...maintenanceState(db,server), paused: i >= plan.servers }));
-    res.set('Cache-Control', 'no-store').json({ user, workspace: { id: ws.id, name: ws.name, plan: plan.id, subscription_status: ws.subscription_status, hasBillingAccount: Boolean(ws.customer_id), guild_id: ws.guild_id, guild_name: ws.guild_name, alert_channel_id: ws.alert_channel_id, alerts_enabled: Boolean(ws.alerts_enabled),failure_threshold:ws.failure_threshold }, servers: entitled.map(s => publicServer(s, s.paused)), players: playerSnapshot(entitled), schedules, activity, templates:operations.listTemplates(ws.id),windows:operations.windows(ws.id),incidents:operations.incidents(ws.id),notifications:operations.notifications(ws.id),moderation:operations.moderation(ws.id),hosting_links:operations.hostingLinks(ws.id),ban_directory:banDirectory.preferences(ws.id), metrics: { history: chart, uptime }, plans: Object.values(PLANS), games: Object.values(GAMES), csrf: req.auth.csrf, integrations: { discord: Boolean(getBot()?.isReady()), billing: billing.ready, invite } });
-  });
+  app.get('/api/bootstrap',(req,res)=>res.set('Cache-Control','no-store').json(buildDashboard({db,req,operations,banDirectory,team,billing,bot:getBot(),env})));
+  app.get('/api/workspaces',(req,res)=>res.set('Cache-Control','no-store').json(team.listWorkspaces(req.auth.user_id)));
+  app.post('/api/workspaces/switch',(req,res)=>{const value=z.object({workspace_id:z.string().min(1).max(100)}).strict().parse(req.body);res.json(team.switchWorkspace(req.auth,value.workspace_id));});
+  app.get('/api/team',(req,res)=>res.set('Cache-Control','no-store').json(team.summary(req.workspace.id)));
+  app.post('/api/team/invitations',(req,res)=>res.status(201).json(team.invite(req.workspace.id,req.body,req.user,origin)));
+  app.post('/api/team/invitations/preview',(req,res)=>{const value=z.object({token:z.string().length(64)}).strict().parse(req.body);res.set('Cache-Control','no-store').json(team.preview(value.token,req.auth.user_id));});
+  app.post('/api/team/invitations/accept',(req,res)=>{const value=z.object({token:z.string().length(64)}).strict().parse(req.body);res.json(team.accept(value.token,req.user,req.auth));});
+  app.delete('/api/team/invitations/:id',(req,res)=>res.json(team.revoke(req.workspace.id,req.params.id,req.user)));
+  app.patch('/api/team/members/:id',(req,res)=>res.json(team.update(req.workspace.id,req.params.id,req.body,req.user)));
+  app.delete('/api/team/members/:id',(req,res)=>res.json(team.remove(req.workspace.id,req.params.id,req.user)));
+  app.get('/api/player-profiles',(req,res)=>res.set('Cache-Control','no-store').json(profiles.list(req.workspace.id,req.query,req.access.server_ids)));
+  app.get('/api/player-profiles/:id',(req,res)=>res.set('Cache-Control','no-store').json(profiles.detail(req.workspace.id,req.params.id,req.access.server_ids)));
+  app.post('/api/player-profiles/:id/notes',(req,res)=>res.status(201).json(profiles.addNote(req.workspace.id,req.params.id,req.body,req.user,req.access.server_ids)));
+  app.patch('/api/player-profiles/:id/notes/:note',(req,res)=>res.json(profiles.updateNote(req.workspace.id,req.params.id,req.params.note,req.body,req.user,req.access)));
+  app.delete('/api/player-profiles/:id/notes/:note',(req,res)=>res.json(profiles.deleteNote(req.workspace.id,req.params.id,req.params.note,req.user,req.access)));
   app.post('/api/logout', (req, res) => { db.prepare('DELETE FROM sessions WHERE token_hash=?').run(req.auth.token_hash); res.clearCookie('rookrift_session', cookieOptions).json({ ok: true }); });
   app.post('/api/servers', async (req, res) => {
     const input = serverSchema.parse(req.body);
@@ -106,7 +115,7 @@ export function createApp({ db, vault, service, billing, operations: providedOpe
   });
   app.post('/api/servers/:id/actions', async (req, res) => {
     const input = z.object({ action: z.enum(['status', 'players', 'save', 'broadcast']), message: z.string().max(300).optional() }).parse(req.body);
-    res.json(await service.action(req.workspace.id, req.params.id, input.action, input.message));
+    res.json(await service.action(req.workspace.id, req.params.id, input.action, input.message,req.user.name));
   });
   app.post('/api/schedules', (req, res) => res.status(201).json(service.addSchedule(req.workspace.id, req.body)));
   app.patch('/api/schedules/:id', (req, res) => {
@@ -126,8 +135,8 @@ export function createApp({ db, vault, service, billing, operations: providedOpe
   app.post('/api/notifications/read-all',(req,res)=>{operations.readNotification(req.workspace.id,'all');res.json({ok:true});});
   app.patch('/api/notifications/:id',(req,res)=>{operations.readNotification(req.workspace.id,req.params.id);res.json({ok:true});});
   app.post('/api/moderation',async(req,res)=>{const user=db.prepare('SELECT name FROM users WHERE id=?').get(req.auth.user_id);res.json(await operations.moderate(req.workspace.id,req.body,user.name));});
-  app.get('/api/ban-directory/bans',(req,res)=>res.set('Cache-Control','no-store').json(banDirectory.ownBans(req.workspace.id,req.query)));
-  app.post('/api/ban-directory/search',rateLimit({windowMs:60000,limit:30,keyGenerator:req=>req.auth.user_id,standardHeaders:'draft-8',legacyHeaders:false,message:{error:'Lookup limit reached. Try again in a minute.'}}),(req,res)=>res.set('Cache-Control','no-store').json(banDirectory.lookup(req.workspace.id,req.body)));
+  app.get('/api/ban-directory/bans',(req,res)=>res.set('Cache-Control','no-store').json(banDirectory.ownBans(req.workspace.id,req.query,req.access.server_ids)));
+  app.post('/api/ban-directory/search',rateLimit({windowMs:60000,limit:30,keyGenerator:req=>req.auth.user_id,standardHeaders:'draft-8',legacyHeaders:false,message:{error:'Lookup limit reached. Try again in a minute.'}}),(req,res)=>res.set('Cache-Control','no-store').json(banDirectory.lookup(req.workspace.id,req.body,req.access.server_ids)));
   app.patch('/api/ban-directory/preferences',(req,res)=>res.set('Cache-Control','no-store').json(banDirectory.updatePreferences(req.workspace.id,req.body)));
   app.put('/api/servers/:id/hosting',async(req,res)=>res.json(await operations.connectHosting(req.workspace.id,req.params.id,req.body)));
   app.delete('/api/servers/:id/hosting',(req,res)=>{operations.disconnectHosting(req.workspace.id,req.params.id);res.json({ok:true});});

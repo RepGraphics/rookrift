@@ -6,7 +6,7 @@ Rookrift's product promise: **give survival community owners their evenings back
 
 Recruit five to ten owners with real ASE and ASA communities. Include at least two hosting providers and a self-hosted cluster. Help each connect one test server first, then measure whether they can connect the second unaided. Record setup failures and support minutes per community. Avoid adding more games until the ARK workflow is dependable.
 
-The application currently defaults to £9/£24 per month. The [updated product direction](PRODUCT-DIRECTION.md) proposes testing two free servers and £3.99/£9.99 paid bundles to pursue the more affordable GameServerApp-style service. Those targets are not implemented price changes. Ask owners what they currently use, what takes the most time, what they would miss if Rookrift disappeared, and whether they will actually subscribe. Keep both games in every tier; charge for operational scale rather than forcing a game upgrade.
+Version 0.5 applies the affordable bundles in [the product direction](PRODUCT-DIRECTION.md): two free servers, GBP 3.99/month for 5 servers, and GBP 9.99/month for 20. Paid bundles include 3/10 staff seats. Validate support and operating costs with pilot owners. Ask what they use now, which recurring job Rookrift removes, and whether they will subscribe. Both ARK games stay in every tier.
 
 Ship a public landing page and a brief video showing a real save, a Discord command, an alert, and adding another server. Publish practical RCON setup guides for the hosts your pilots actually use. Seek permission from community owners before publishing quotes or logos. The current login page and hosted demo can support product review; the public acquisition site is a separate launch task.
 

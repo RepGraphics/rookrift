@@ -29,7 +29,7 @@ test('demo downgrade updates limits and pauses excess servers', async () => {
   await user.click(screen.getByRole('button', { name: /Preview Scout/ }));
   await user.click(screen.getByRole('button', { name: /Try this demo plan/ }));
   await user.click(screen.getByRole('button', { name: /Game servers/ }));
-  expect(screen.getAllByText('Paused').length).toBe(2);
+  expect(screen.getAllByText('Paused').length).toBe(1);
   await user.click(screen.getByRole('button', { name: 'Add game server' }));
   expect(screen.getByRole('dialog', { name: 'Your community is growing.' })).toBeTruthy();
 });

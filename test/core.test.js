@@ -22,15 +22,15 @@ test('RCON vault encrypts with unique IVs, decrypts, and rejects tampering', () 
   assert.throws(() => vault.decrypt(data.toString('base64'))); assert.throws(() => createVault('short'));
 });
 test('free cap is enforced on every insert and paid status controls capacity', () => {
-  const { db, service } = fixture(); service.addServer('w1', input);
-  assert.throws(() => service.addServer('w1', input), /Scout allows 1 servers/);
+  const { db, service } = fixture(); service.addServer('w1', input);service.addServer('w1', input);
+  assert.throws(() => service.addServer('w1', input), /Scout allows 2 servers/);
   db.prepare("UPDATE workspaces SET plan='tribe',subscription_status='active' WHERE id='w1'").run();
-  for (let i = 0; i < 4; i++) service.addServer('w1', input);
+  for (let i = 0; i < 3; i++) service.addServer('w1', input);
   assert.throws(() => service.addServer('w1', input), /Tribe allows 5 servers/);
   db.prepare("UPDATE workspaces SET subscription_status='past_due' WHERE id='w1'").run();
   assert.equal(effectivePlan(db.prepare("SELECT * FROM workspaces WHERE id='w1'").get()).id, 'scout');
   const servers = listServers(db, 'w1'); assert.doesNotThrow(() => service.getServer('w1', servers[0].id));
-  assert.throws(() => service.getServer('w1', servers[1].id), /paused/); assert.equal(servers.length, 5); db.close();
+  assert.throws(() => service.getServer('w1', servers[2].id), /paused/); assert.equal(servers.length, 5); db.close();
 });
 test('tenant isolation applies to controls, schedules, and returned secrets', async () => {
   const { db, service } = fixture(); const server = service.addServer('w1', input);
@@ -57,10 +57,11 @@ test('network target validation blocks loopback, metadata, private and mapped pr
   assert.equal(await resolveTarget('8.8.8.8', false), '8.8.8.8');
   assert.equal(await resolveTarget('10.0.0.5', true), '10.0.0.5');
 });
-test('persisted schedules run once when due, skip missed intervals and stop on downgrade', async () => {
+test('persisted schedules run once when due, skip missed intervals and pause excess tasks on downgrade', async () => {
   let calls = 0; const { db, service } = fixture(async () => { calls++; return { output: 'OK', latency: 1 }; });
   db.prepare("UPDATE workspaces SET plan='tribe',subscription_status='active' WHERE id='w1'").run();
   const server = service.addServer('w1', input);
+  for(let n=0;n<2;n++){const first=service.addSchedule('w1',{server_id:server.id,name:'Free allowance '+n,action:'save',interval_minutes:15});service.updateSchedule('w1',first.id,{enabled:false});}
   const task = service.addSchedule('w1', { server_id: server.id, name: 'World save', action: 'save', interval_minutes: 15 });
   db.prepare('UPDATE schedules SET next_run=? WHERE id=?').run(Date.now() - 86400000, task.id);
   await service.runDueSchedules(); await service.runDueSchedules(); assert.equal(calls, 1);

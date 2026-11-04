@@ -989,3 +989,62 @@ input[type='checkbox'] { width: 16px; height: 16px; min-width: 16px; margin: 0; 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
 }
+.profiles-page, .profile-detail, .team-page { display: grid; gap: 22px; }
+.profile-detail { margin-top: 22px; }
+.profile-filters { display: grid; grid-template-columns: minmax(220px,1fr) 180px 190px; gap: 12px; }
+.profile-filters input { min-width: 0; width: 100%; }
+.profile-summary { display: flex; align-items: center; gap: 20px; padding: 25px; }
+.profile-avatar { display: grid; place-items: center; width: 58px; height: 58px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-alt); color: var(--muted); flex-shrink: 0; }
+.profile-summary h2 { font-size: 22px; margin: 6px 0 8px; }
+.profile-summary code { font-size: 13px; overflow-wrap: anywhere; }
+.profile-summary p { margin-top: 12px; color: var(--muted); font-size: 12px; }
+.profile-stat-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 16px; }
+.profile-stat-grid .stat-card span { color: var(--muted); font-size: 12px; }
+.profile-stat-grid .stat-card strong { display: block; margin-top: 12px; font-size: 16px; line-height: 1.6; }
+.profile-section-heading { padding: 19px 21px; border-bottom: 1px solid var(--line); }
+.profile-section-heading h3 { font-size: 14px; }
+.profile-section-heading p { max-width: 750px; margin-top: 7px; color: var(--muted); font-size: 12px; line-height: 1.8; }
+.profile-notes-list { padding: 0 21px; }
+.profile-notes-list article { padding: 19px 0; border-bottom: 1px solid var(--line); }
+.profile-note-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; font-size: 12px; }
+.profile-note-meta span { color: var(--muted); }
+.profile-notes-list article > p { margin: 13px 0; font-size: 13px; line-height: 1.85; white-space: pre-wrap; overflow-wrap: anywhere; }
+.profile-note-form { padding: 22px; background: var(--surface-alt); }
+.profile-note-form h3 { font-size: 14px; margin-bottom: 20px; }
+.profile-note-form .field { max-width: 750px; }
+.profile-note-form .field:first-of-type { max-width: 380px; }
+.topbar-actions > select { max-width: 240px; font-size: 12px; }
+.invite-banner { padding: 22px; margin-bottom: 24px; }
+.invite-banner h2 { font-size: 18px; }
+.invite-banner p { margin: 10px 0 18px; color: var(--muted); font-size: 13px; line-height: 1.8; }
+.staff-shell { min-height: 100vh; background: var(--bg); }
+.staff-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 18px; padding: 19px max(24px,calc((100vw - 1280px)/2)); border-bottom: 1px solid var(--line); background: var(--panel); }
+.staff-brand { display: flex; align-items: center; gap: 13px; }
+.staff-brand img { width: 38px; height: 38px; object-fit: contain; }
+.staff-brand strong { font-size: 15px; letter-spacing: 1px; }
+.staff-brand span { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
+.staff-header select { max-width: 250px; }
+main.staff-main { max-width: 1340px; margin: 0 auto; padding: 35px 30px; }
+.staff-main h1 { font-size: 28px; margin-top: 8px; }
+.staff-tabs { width: fit-content; margin: 26px 0; }
+.staff-tabs button { display: flex; gap: 8px; align-items: center; }
+.staff-server { padding: 23px; }
+.staff-server h2 { margin: 12px 0 6px; font-size: 18px; }
+.staff-server > p { color: var(--muted); font-size: 12px; line-height: 1.8; }
+.staff-server-status { display: flex; justify-content: space-between; gap: 15px; padding: 19px 0; font-size: 13px; }
+.staff-server-status > span { text-transform: capitalize; color: var(--muted); }
+.staff-server .footnote { margin-bottom: 0; margin-top: 20px; }
+.staff-main .directory-scope { display: flex; align-items: center; gap: 7px; }
+.staff-main .server-grid { margin-bottom: 25px; }
+.staff-shell .toast { left: 50%; }
+.staff-edit-actions { margin-top: 13px; }
+@media (max-width: 800px) {
+  .profile-filters { grid-template-columns: 1fr 1fr; }
+  .profile-filters .input-search { grid-column: 1/-1; }
+  .profile-stat-grid { grid-template-columns: 1fr; gap: 12px; }
+  .profile-summary { align-items: flex-start; padding: 20px; }
+  .topbar-actions > select { max-width: 150px; }
+  .staff-header { padding: 18px; }
+  main.staff-main { padding: 25px 18px; }
+  .staff-tabs { max-width: 100%; overflow-x: auto; }
+}

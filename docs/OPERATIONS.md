@@ -52,10 +52,10 @@ Internal server notes are editable with a connection's metadata and visible in i
 
 | Plan | Announcement templates | Recurring windows | Retained metrics / runs / notifications |
 | --- | ---: | ---: | ---: |
-| Scout | 3 | 0 | 1 day |
+| Scout | 3 | 0 | 2 days |
 | Tribe | 25 | 10 | 7 days |
 | Cluster | 100 | 50 | 30 days |
 
 Player moderation and the Pterodactyl connector are available for servers allowed by the current plan. Provider fees and game hosting remain separate. Closed incidents follow retention; unresolved incidents and tracked moderation records remain actionable within their documented views.
 
-Before upgrading, stop the single application process and take a consistent database/WAL backup plus a separate encryption-key backup. Startup applies schema version 3 upgrades, including typed moderation identities and the opt-in ban directory. Review the [ban directory migration notes](BAN-DIRECTORY.md) before enabling sharing. Do not run mixed versions against one SQLite database. The Docker image includes both `server/` and the shared runtime helpers. Existing demo workspaces are upgraded locally without clearing prior edits. Verify the live game's identifiers, moderation behavior, panel permissions, backup completion, and outage/recovery path on test servers before broad launch.
+Before upgrading, stop the single application process and take a consistent database/WAL backup plus a separate encryption-key backup. Startup applies schema version 4 upgrades, including typed moderation identities, the ban directory, team membership, and persistent profiles/notes. See [the teams and players migration guide](TEAM-AND-PLAYERS.md). Review the [ban directory migration notes](BAN-DIRECTORY.md) before enabling sharing. Do not run mixed versions against one SQLite database. The Docker image includes both `server/` and the shared runtime helpers. Existing demo workspaces are upgraded locally without clearing prior edits. Verify the live game's identifiers, moderation behavior, panel permissions, backup completion, and outage/recovery path on test servers before broad launch.

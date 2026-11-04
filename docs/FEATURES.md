@@ -42,7 +42,7 @@ Open **Players** for the latest reported names and IDs across online servers all
 
 Rows show their check time. They are snapshots from `ListPlayers`, not a continuous connection stream or a join/leave history. Offline and plan-paused servers are excluded. Names and identifiers are supplied by the game server and displayed as text. Sample identifiers in the demo begin with `DEMO-`.
 
-The backend stores only the latest per-server player snapshot, replacing it after each successful check and clearing it on failed connectivity or credential changes. These records are owner-visible through the authenticated dashboard; no public player directory is created.
+The connected-player table uses the latest per-server snapshot, replacing it after each successful check and clearing it on failed connectivity or credential changes. Version 0.5 also stores persistent typed sightings and private notes under Players ? Player profiles; see [the teams and players guide](TEAM-AND-PLAYERS.md). These records are owner-visible through the authenticated dashboard; no public player directory is created.
 
 ## Edit, run, and inspect automations
 

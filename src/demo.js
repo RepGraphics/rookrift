@@ -1,3 +1,4 @@
+import {syncDemoProfiles} from './demo-profiles';
 import {tryIdentity} from '../shared/ban-identity';
 import { PLANS } from '../server/plans.js';
 const now = Date.now();
@@ -33,6 +34,9 @@ function demoPlayers(servers) {
   return servers.filter(server => server.status === 'online').flatMap(server => Array.from({ length: server.players }, (_, index) => ({ id: `${server.id}:${index}`, name: `${names[index % names.length]}${index >= names.length ? index + 1 : ''}`, identifier: `DEMO-${server.id.toUpperCase()}-${String(index + 1).padStart(3, '0')}`, server_id: server.id, server_name: server.name, game: server.game, cluster: server.cluster, checked_at: now })));
 }
 export function upgradeDemo(data) {
+  data.access ??= {role:'owner',server_ids:null};
+  data.workspaces ??= [{id:data.workspace.id,name:data.workspace.name,role:'owner',server_ids:null}];
+  data.team ??= {members:[{id:'demo-staff-1',name:'Morgan Lee',user_id:'223456789012345678',role:'moderator',server_ids:['d1','d2'],created_at:now-86400000,paused:false}],invitations:[],audit:[]};
   data.workspace.alerts_enabled ??= true;
   data.workspace.failure_threshold ??= 1;
   data.servers = data.servers.map(server => ({ ...server, cluster: server.cluster ?? (server.game === 'asa' ? 'Main cluster' : 'Legacy worlds'), maintenance: Boolean(server.maintenance), last_checked: server.last_checked ?? (server.status === 'unknown' ? null : now) }));
@@ -54,6 +58,7 @@ export function upgradeDemo(data) {
   data.host_resources ??= {d1:{state:'running',cpu:14.2,memory_bytes:4*1024**3,disk_bytes:18*1024**3,uptime_ms:68400000}};
   data.backups ??= {d1:[{id:'backup-demo-1',name:'Daily world archive',bytes:840*1024**2,created_at:new Date(now-86400000).toISOString(),completed_at:new Date(now-86400000+60000).toISOString(),status:'completed'}]};
   data.runs ??= data.schedules.flatMap(task=>[{id:`run-${task.id}`,schedule_id:task.id,server_id:task.server_id,started_at:now-3600000,finished_at:now-3599000,status:'success',detail:'Simulated command acknowledged.'}]);
+  syncDemoProfiles(data);
   return data;
 }
 export function demoHealth(server,hours=24) {

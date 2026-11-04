@@ -5,6 +5,7 @@ import { audit, listServers, publicServer } from './db.js';
 import { runRcon } from './games.js';
 import { commandFor } from './games.js';
 import { maintenanceState,renderAnnouncement,observeHealth,notify } from './operations-state.js';
+import {observePlayers} from './player-profiles.js';
 const serverFields = z.object({
   name: z.string().trim().min(2).max(60), game: z.enum(['asa', 'ase']), map: z.string().trim().min(1).max(60),
   host: z.string().trim().min(1).max(253).regex(/^[a-zA-Z0-9.:-]+$/, 'Enter a hostname or IP address without a URL or port.'),
@@ -53,6 +54,7 @@ export function createService(db, vault, transport = runRcon) {
     },
     updateServer(workspaceId, id, input) {
       const original = getServer(workspaceId, id, false), data = serverUpdateSchema.parse(input);
+      if(data.game&&data.game!==original.game&&(db.prepare('SELECT 1 FROM player_observations WHERE server_id=? LIMIT 1').get(id)||db.prepare('SELECT 1 FROM moderation WHERE server_id=? LIMIT 1').get(id)))throw Object.assign(new Error('Add a new connection to change games after player or moderation history exists. This preserves the original game’s records.'),{status:409});
       if (busy.has(id)) throw Object.assign(new Error('Wait for the current server command to finish before editing its connection.'), { status: 409 });
       const connectionChanged = ['host', 'port', 'game'].some(key => data[key] !== undefined && data[key] !== original[key]) || Boolean(data.password);
       const updated = { ...original, ...data, password: data.password ? vault.encrypt(data.password) : original.password, maintenance: data.maintenance === undefined ? original.maintenance : Number(data.maintenance) };
@@ -138,12 +140,14 @@ export function createService(db, vault, transport = runRcon) {
         const result = await transport(server, vault, action, message);
         if (result.players) {
           const players = result.players.slice(0, 1000).map(line => String(line).slice(0, 512));
-          db.prepare('UPDATE servers SET status=?,players=?,player_list=?,latency=?,last_checked=? WHERE id=?').run('online', players.length, JSON.stringify(players), result.latency, Date.now(), serverId);
+          const checkedAt=Date.now();
+          db.prepare('UPDATE servers SET status=?,players=?,player_list=?,latency=?,last_checked=? WHERE id=?').run('online', players.length, JSON.stringify(players), result.latency, checkedAt, serverId);
+          observePlayers(db,server,players,checkedAt);
         }
         if (action !== 'status') audit(db, workspaceId, ({ save: 'World saved', broadcast: 'Broadcast sent', players: 'Player list requested',kick:'Kick command sent',ban:'Ban command sent',unban:'Unban command sent' })[action] || action, `${server.name} · ${actor}`, 'success', serverId);
         return result;
       } catch (error) {
-        if (!error.status) { db.prepare("UPDATE servers SET status='offline',players=0,player_list='[]',latency=NULL,last_checked=? WHERE id=?").run(Date.now(), serverId); error.status = 502; error.message = 'RCON connection failed. Check the address, port, password, and firewall.'; }
+        if (!error.status) { db.prepare("UPDATE servers SET status='offline',players=0,player_list='[]',latency=NULL,last_checked=? WHERE id=?").run(Date.now(), serverId);db.prepare('UPDATE player_observations SET online=0 WHERE server_id=?').run(serverId); error.status = 502; error.message = 'RCON connection failed. Check the address, port, password, and firewall.'; }
         if (action !== 'status') audit(db, workspaceId, 'Command failed', `${server.name} · ${error.message}`, 'error', serverId);
         throw error;
       } finally { busy.delete(serverId); }

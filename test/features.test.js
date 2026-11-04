@@ -30,8 +30,9 @@ test('server edits preserve blank passwords, encrypt replacements, reset connect
 });
 test('bulk actions validate every target and entitlement before any server receives a command', async t => {
   let calls=0; const { db,service }=fixture(t,async()=>{ calls++;return {output:'OK'}; });
-  const first=service.addServer('w1',input), second=service.addServer('w1',{...input,name:'Scorched'}), foreign=service.addServer('w2',input);
+  const first=service.addServer('w1',input), extra=service.addServer('w1',{...input,name:'Second'}), second=service.addServer('w1',{...input,name:'Scorched'}), foreign=service.addServer('w2',input);
   await assert.rejects(service.bulkAction('w1',{server_ids:[first.id,foreign.id],action:'save'}),/not found/); assert.equal(calls,0);
+  db.prepare('UPDATE servers SET created_at=1 WHERE id=?').run(first.id);db.prepare('UPDATE servers SET created_at=2 WHERE id=?').run(extra.id);db.prepare('UPDATE servers SET created_at=3 WHERE id=?').run(second.id);
   db.prepare("UPDATE workspaces SET subscription_status='canceled' WHERE id='w1'").run();
   await assert.rejects(service.bulkAction('w1',{server_ids:[first.id,second.id],action:'save'}),/paused/); assert.equal(calls,0);
 });
@@ -64,6 +65,7 @@ test('connection alerts honor workspace preferences and per-server maintenance w
 });
 test('automation edits validate ownership, reset the next run, and enforce paid limits on run and enable', async t => {
   const {db,service}=fixture(t); const server=service.addServer('w1',input), foreign=service.addServer('w2',input);
+  for(let n=0;n<2;n++)service.addSchedule('w1',{server_id:server.id,name:'Free allowance '+n,action:'save',interval_minutes:60});
   const task=service.addSchedule('w1',{server_id:server.id,name:'Old task',action:'save',interval_minutes:15});
   assert.throws(()=>service.updateSchedule('w1',task.id,{server_id:foreign.id,name:'Hijack',action:'save',interval_minutes:30}),/not found/);
   assert.throws(()=>service.updateSchedule('w1',task.id,null));
@@ -96,7 +98,7 @@ test('existing databases migrate idempotently without losing servers or encrypte
   db.prepare("INSERT INTO servers(id,workspace_id,name,game,map,host,port,password,created_at) VALUES('s','w','Existing','asa','Island','8.8.8.8',27020,'encrypted-password',1)").run();
   for(const [table,columns] of Object.entries({servers:['cluster','maintenance','player_list'],schedules:['last_run','last_status','last_detail'],workspaces:['alerts_enabled']}))for(const column of columns)db.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
   db.close(); db=openDatabase(filename); assert.equal(db.prepare("SELECT password FROM servers WHERE id='s'").get().password,'encrypted-password'); assert.equal(db.prepare('SELECT maintenance,cluster FROM servers').get().maintenance,0); db.close();
-  db=openDatabase(filename); assert.equal(db.prepare('SELECT count(*) AS n FROM servers').get().n,1); assert.equal(db.prepare('PRAGMA user_version').get().user_version,3); db.close();
+  db=openDatabase(filename); assert.equal(db.prepare('SELECT count(*) AS n FROM servers').get().n,1); assert.equal(db.prepare('PRAGMA user_version').get().user_version,4); db.close();
 });
 test('CSV exports escape cells, preserve commas and newlines, and neutralize spreadsheet formulas', () => {
   for(const value of ['=SUM(1,2)',' +1','@cmd','-10','\t=HYPERLINK("x")'])assert.ok(csvCell(value).startsWith('"\''));

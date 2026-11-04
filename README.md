@@ -4,7 +4,7 @@
 
 This is a runnable MVP starter, with working backend integrations that require your credentials. The hosted Site is an **interactive, browser-local demo**, separate from the live backend. It does not connect to real servers, run a Discord bot, or collect payments. A real service needs a continuously running Node host with outbound TCP access; a static website or Cloudflare Worker cannot run this process.
 
-The product direction is an affordable ARK-first service covering the daily workflows found in GameServerApp: player administration, automation, host controls, team access, and community tools. The [product comparison and roadmap](docs/PRODUCT-DIRECTION.md) records current capabilities, gaps, delivery priorities, and a lower-price launch proposal. Proposed future features and prices are labelled separately from the working application.
+The product direction is an affordable ARK-first service covering the daily workflows found in GameServerApp: player administration, automation, host controls, team access, and community tools. The [product comparison and roadmap](docs/PRODUCT-DIRECTION.md) records current capabilities, remaining gaps, and delivery priorities. Persistent profiles, private staff notes, dashboard teams, and the lower-priced bundles are now implemented; see [the teams and players guide](docs/TEAM-AND-PLAYERS.md).
 
 ## Try the dashboard
 
@@ -33,6 +33,8 @@ Open the printed address, normally http://127.0.0.1:5173. Demo changes persist i
 - Operations workspace with per-server health trends, observed availability, latency percentiles, incident acknowledgement/notes, and persistent notifications.
 - Reusable announcement templates, live placeholders, timezone-aware weekly maintenance windows, and retained automation execution history.
 - Player kick/ban/unban controls with server-reported identity checks, internal reasons, and a moderation audit trail.
+- Persistent typed player profiles with first/last sightings, observed-server history, search/presence filters, and private server-scoped staff notes.
+- Discord-bound team invitations, owner/admin/moderator/viewer roles, per-server access, session workspace switching, staff audit, and immediate enforcement of changed/revoked grants on subsequent API requests.
 - Players ? Ban lookup: a private unified cluster ban list and exact UUID/EOSID/Steam64/game-ID lookup across opt-in communities, with game scope, withdrawn reports, pagination, and private reasons excluded from sharing. See [the ban directory guide](docs/BAN-DIRECTORY.md).
 - Verified Pterodactyl client API connections for process resources, start/stop/restart requests, and provider backup creation/status.
 - Internal server notes and configurable consecutive-failure thresholds for outage incidents.
@@ -43,15 +45,15 @@ Open the printed address, normally http://127.0.0.1:5173. Demo changes persist i
 - Docker deployment and reverse-proxy example.
 - Generated logo, PNG/ICO favicons, touch icon, landscape art, and locally hosted fonts.
 
-## Proposed launch plans
+## Launch plan defaults
 
 These are product defaults, not validated market pricing. Prices are in GBP per workspace per month. Your configured Stripe products must match the prices displayed here, including your chosen tax treatment.
 
-| Plan | Monthly price | Game servers | Automations | Activity / metric retention |
-| --- | ---: | ---: | ---: | ---: |
-| Scout | Free | 1 | 0 | 1 day |
-| Tribe | £9 | 5 | 10 | 7 days |
-| Cluster | £24 | 20 | 50 | 30 days |
+| Plan | Monthly price | Game servers | Automations | Additional staff | Activity / metric retention |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Scout | Free | 2 | 2 | 0 | 2 days |
+| Tribe | £3.99 | 5 | 10 | 3 | 7 days |
+| Cluster | £9.99 | 20 | 50 | 10 | 30 days |
 
 All plans include both ARK adapters, monitoring, manual saves/broadcasts, and Discord commands. Hosting for the actual game servers is separate. Paid limits apply only while Stripe reports `active` or `trialing`. Other statuses use Scout limits. A downgrade keeps saved records, enables the oldest servers up to the new limit, and pauses extra connections and automations. No servers are destroyed.
 
@@ -95,7 +97,7 @@ The bot runs in the backend process. Registration is a separate setup command. R
 
 ### 3. Configure Stripe in test mode first
 
-Create recurring monthly GBP prices for Tribe (£9) and Cluster (£24). Put their price IDs and your test secret key into `.env`. Configure the Stripe customer portal to allow the desired upgrades, downgrades, cancellations, and invoice access. Restrict it to these products/prices and your monthly billing policy.
+Create recurring monthly GBP prices for Tribe (£3.99 / 399 pence) and Cluster (£9.99 / 999 pence). Put their price IDs and your test secret key into `.env`. Checkout rejects a configured price that differs from the displayed amount, currency, or one-month interval. Configure the Stripe customer portal to allow the desired upgrades, downgrades, cancellations, and invoice access. Restrict it to these products/prices and your monthly billing policy. Existing subscriptions are not repriced automatically; retain older entitled price IDs in the optional legacy environment settings when replacing the checkout prices. See [the migration guide](docs/TEAM-AND-PLAYERS.md).
 
 Create a webhook endpoint at `APP_URL/api/webhooks/stripe`, subscribe to:
 
@@ -168,13 +170,13 @@ npm run build
 npm run build:demo
 ```
 
-The suite contains 64 Node backend/protocol tests and 31 dashboard interaction tests. Coverage includes encrypted credentials, workspace isolation, CSRF, sessions, paid limits, migrations, bulk actions, recurring windows, timezone/midnight behavior, typed ban-directory lookup, opt-in sharing and opt-out visibility, shared-field filtering, withdrawal/re-ban lifecycle, pagination, legacy ban migration, moderation identity/command checks, Pterodactyl request mapping/confirmation, SSRF restrictions, announcements, incidents, notifications, health analytics, execution history, RCON TCP framing, and the existing billing/dashboard flows. `node scripts/check-contrast.mjs` verifies 15 text/background colour pairs per theme against a minimum 4.5:1 ratio. External integrations are mocked or exercised with a local protocol fixture. Tests are not proof of live provider compatibility.
+The suite contains 83 Node backend/protocol tests and 43 dashboard interaction tests. It covers team invitation/account binding, revocation, viewer mutation restrictions, scoped bootstrap/profile/note/ban visibility, note authorship, persistent sightings and upgrade seeding, affordable entitlements, Stripe price mismatch protection and legacy IDs, plus the existing encryption, billing, RCON, operations, and dashboard flows. `node scripts/check-contrast.mjs` verifies 15 text/background colour pairs per theme against a minimum 4.5:1 ratio. External integrations are mocked or exercised with a local protocol fixture. Tests are not proof of live provider compatibility.
 
-Browser screenshot QA was unavailable in this environment: the browser host was unavailable, and native Firefox automation stopped because URL-policy enforcement was unsupported. Desktop/mobile layout needs a visual review before public launch. The Docker image was built and smoke-tested: health and dashboard return 200, protected API routes return 401 before sign-in, and authenticated directory lookup verifies opt-in visibility, private-field filtering, and unban withdrawal.
+Browser screenshot QA remains unavailable because the browser access host is unavailable. Desktop/mobile layout needs a visual review before public launch. The Docker image is built and smoke-tested with authenticated API checks; external Discord, Stripe and game-provider behavior still requires live integration testing.
 
 ## Scope and next steps
 
-Process start/stop/restart and file backup creation/status now use a connected Pterodactyl panel. Other hosts, a native host agent, backup restoration/download/deletion, mod installation, remote INI editing, cross-server chat, delegated web-dashboard team seats, and DayZ are not implemented. RCON `SaveWorld` writes the current game save; it is separate from provider file backups. Moderation records submitted commands and still requires live game/provider verification.
+Process start/stop/restart and file backup creation/status use a connected Pterodactyl panel. Other hosts, a native host agent, backup restoration/download/deletion, mod installation, remote INI editing, cross-server chat, event-driven multi-step automations, a supporter shop, and DayZ remain future work. Dashboard team seats and persistent player profiles are implemented. RCON `SaveWorld` writes the current game save; it is separate from provider file backups. Moderation records submitted commands and still requires live game/provider verification.
 
 Automations are interval-based, not cron calendars. They are claimed before running, run at most once per claim, and skip missed intervals after downtime. Monitoring is sequential per minute cycle, so large or unreachable fleets take longer. Events older than the plan retention period are pruned by the background process. Demo data is browser-local and persists until reset.
 

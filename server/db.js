@@ -3,6 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {tryIdentity} from '../shared/ban-identity.js';
+import {observePlayers} from './player-profiles.js';
 export function openDatabase(filename = process.env.DATABASE_PATH || './data/rookrift.sqlite') {
   if (filename !== ':memory:') mkdirSync(dirname(filename), { recursive: true });
   const db = new DatabaseSync(filename);
@@ -41,6 +42,16 @@ export function openDatabase(filename = process.env.DATABASE_PATH || './data/roo
       CREATE INDEX IF NOT EXISTS idx_notifications_workspace ON notifications(workspace_id,created_at);
       CREATE INDEX IF NOT EXISTS idx_runs_workspace ON schedule_runs(workspace_id,finished_at);
       CREATE TABLE IF NOT EXISTS ban_directory_reports (id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL REFERENCES workspaces(id),server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,identity_key TEXT NOT NULL,identity_kind TEXT NOT NULL,active INTEGER NOT NULL,first_reported_at INTEGER NOT NULL,last_updated_at INTEGER NOT NULL,withdrawn_at INTEGER,UNIQUE(server_id,identity_key));
+      CREATE TABLE IF NOT EXISTS workspace_members (id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL REFERENCES workspaces(id),user_id TEXT NOT NULL REFERENCES users(id),role TEXT NOT NULL CHECK(role IN ('admin','moderator','viewer')),server_ids TEXT,created_at INTEGER NOT NULL,UNIQUE(workspace_id,user_id));
+      CREATE TABLE IF NOT EXISTS team_invitations (id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL REFERENCES workspaces(id),discord_user_id TEXT NOT NULL,role TEXT NOT NULL CHECK(role IN ('admin','moderator','viewer')),server_ids TEXT,token_hash TEXT NOT NULL UNIQUE,created_at INTEGER NOT NULL,expires_at INTEGER NOT NULL,accepted_at INTEGER,revoked_at INTEGER);
+      CREATE TABLE IF NOT EXISTS session_workspaces (token_hash TEXT PRIMARY KEY REFERENCES sessions(token_hash) ON DELETE CASCADE,workspace_id TEXT NOT NULL REFERENCES workspaces(id));
+      CREATE TABLE IF NOT EXISTS staff_audit (id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL REFERENCES workspaces(id),user_id TEXT NOT NULL,actor TEXT NOT NULL,action TEXT NOT NULL,resource_id TEXT,server_id TEXT,created_at INTEGER NOT NULL);
+      CREATE INDEX IF NOT EXISTS idx_members_user ON workspace_members(user_id,created_at,id);
+      CREATE INDEX IF NOT EXISTS idx_staff_audit ON staff_audit(workspace_id,created_at);
+      CREATE TABLE IF NOT EXISTS player_profiles (id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL REFERENCES workspaces(id),identity_key TEXT NOT NULL,identity_kind TEXT NOT NULL,game TEXT NOT NULL,created_at INTEGER NOT NULL,UNIQUE(workspace_id,identity_key,game));
+      CREATE TABLE IF NOT EXISTS player_observations (profile_id TEXT NOT NULL REFERENCES player_profiles(id) ON DELETE CASCADE,server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,display_name TEXT NOT NULL,first_seen INTEGER NOT NULL,last_seen INTEGER NOT NULL,last_checked INTEGER NOT NULL,sightings INTEGER NOT NULL,online INTEGER NOT NULL,PRIMARY KEY(profile_id,server_id));
+      CREATE TABLE IF NOT EXISTS player_notes (id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL REFERENCES workspaces(id),profile_id TEXT NOT NULL REFERENCES player_profiles(id) ON DELETE CASCADE,server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,body TEXT NOT NULL,author_id TEXT NOT NULL,author_name TEXT NOT NULL,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL);
+      CREATE INDEX IF NOT EXISTS idx_player_notes ON player_notes(profile_id,created_at);
     `);
     for (const [table, additions] of Object.entries(columns)) {
       const existing = new Set(db.prepare(`PRAGMA table_info(${table})`).all().map(column => column.name));
@@ -51,7 +62,8 @@ export function openDatabase(filename = process.env.DATABASE_PATH || './data/roo
     db.exec(`DROP INDEX IF EXISTS idx_one_active_ban;
       UPDATE moderation SET active=0 WHERE id IN (SELECT id FROM (SELECT id,ROW_NUMBER() OVER(PARTITION BY server_id,identity_key ORDER BY created_at DESC,id DESC) AS position FROM moderation WHERE active=1) WHERE position>1);
       CREATE UNIQUE INDEX IF NOT EXISTS idx_one_active_identity_ban ON moderation(server_id,identity_key) WHERE active=1;`);
-    db.exec('CREATE INDEX IF NOT EXISTS idx_moderation_identity ON moderation(workspace_id,identity_key,action,active); CREATE INDEX IF NOT EXISTS idx_moderation_server_identity ON moderation(server_id,identity_key,action,created_at); CREATE INDEX IF NOT EXISTS idx_shared_ban_identity ON ban_directory_reports(identity_key,workspace_id,active); PRAGMA user_version=3; COMMIT');
+    for(const server of db.prepare("SELECT * FROM servers WHERE status='online' AND last_checked IS NOT NULL AND NOT EXISTS(SELECT 1 FROM player_observations o WHERE o.server_id=servers.id)").all()){let lines;try{lines=JSON.parse(server.player_list);}catch{lines=[];}if(Array.isArray(lines))observePlayers(db,server,lines,server.last_checked);}
+    db.exec('CREATE INDEX IF NOT EXISTS idx_moderation_identity ON moderation(workspace_id,identity_key,action,active); CREATE INDEX IF NOT EXISTS idx_moderation_server_identity ON moderation(server_id,identity_key,action,created_at); CREATE INDEX IF NOT EXISTS idx_shared_ban_identity ON ban_directory_reports(identity_key,workspace_id,active); PRAGMA user_version=4; COMMIT');
   } catch (error) { db.exec('ROLLBACK'); db.close(); throw error; }
   return db;
 }

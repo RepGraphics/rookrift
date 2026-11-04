@@ -1,8 +1,10 @@
 import Stripe from 'stripe';
 import { audit } from './db.js';
+import {PLANS} from './plans.js';
 export function createBilling(db, env = process.env, injectedStripe) {
   const stripe = injectedStripe || (env.STRIPE_SECRET_KEY ? new Stripe(env.STRIPE_SECRET_KEY) : null);
   const prices = { tribe: env.STRIPE_TRIBE_MONTHLY_PRICE_ID, cluster: env.STRIPE_CLUSTER_MONTHLY_PRICE_ID };
+  const legacy={tribe:(env.STRIPE_TRIBE_LEGACY_MONTHLY_PRICE_IDS||'').split(',').map(v=>v.trim()).filter(Boolean),cluster:(env.STRIPE_CLUSTER_LEGACY_MONTHLY_PRICE_IDS||'').split(',').map(v=>v.trim()).filter(Boolean)};
   const ready = Boolean(stripe && env.STRIPE_WEBHOOK_SECRET && prices.tribe && prices.cluster);
   const checkoutBusy = new Set();
   function requireReady() { if (!ready) throw Object.assign(new Error('Billing is not configured yet. Ask the service owner to complete Stripe setup.'), { status: 503 }); }
@@ -13,7 +15,7 @@ export function createBilling(db, env = process.env, injectedStripe) {
     if (!workspace) return;
     // Only the two configured price IDs grant paid capabilities. Never trust client or metadata plan values.
     const price = subscription.items.data[0]?.price.id;
-    const plan = Object.keys(prices).find(key => prices[key] && prices[key] === price) || 'scout';
+    const plan = Object.keys(prices).find(key => (prices[key] && prices[key] === price)||legacy[key].includes(price)) || 'scout';
     if (workspace.subscription_id && workspace.subscription_id !== subscription.id) {
       const existing = await stripe.subscriptions.retrieve(workspace.subscription_id);
       if (['active', 'trialing'].includes(existing.status)) return;
@@ -29,6 +31,8 @@ export function createBilling(db, env = process.env, injectedStripe) {
       if (checkoutBusy.has(workspace.id)) throw Object.assign(new Error('A checkout is already being prepared. Try again shortly.'), { status: 409 });
       checkoutBusy.add(workspace.id);
       try {
+        const configured=await stripe.prices.retrieve(prices[plan]);
+        if(!configured.active||configured.currency!=='gbp'||configured.unit_amount!==Math.round(PLANS[plan].price*100)||configured.recurring?.interval!=='month'||configured.recurring?.interval_count!==1)throw Object.assign(new Error('The configured Stripe price does not match this plan’s monthly GBP price. Ask the service owner to update billing configuration.'),{status:503});
         // Refresh customer ID inside the lock, including for simultaneous first-time requests.
         let customer = db.prepare('SELECT customer_id FROM workspaces WHERE id=?').get(workspace.id).customer_id;
         if (!customer) {
@@ -40,12 +44,12 @@ export function createBilling(db, env = process.env, injectedStripe) {
         if (subscriptions.data.some(s => !['canceled', 'incomplete_expired'].includes(s.status))) throw Object.assign(new Error('Use Manage billing to change your existing subscription.'), { status: 409 });
         const pending = await stripe.checkout.sessions.list({ customer, status: 'open', limit: 100 });
         for (const session of pending.data.filter(s => s.mode === 'subscription')) {
-          if (session.metadata?.plan === plan && session.url) return session.url;
+          if (session.metadata?.plan === plan && session.metadata?.price_id === prices[plan] && session.url) return session.url;
           await stripe.checkout.sessions.expire(session.id);
         }
         const session = await stripe.checkout.sessions.create({
           customer, mode: 'subscription', line_items: [{ price: prices[plan], quantity: 1 }], client_reference_id: workspace.id,
-          metadata: { plan }, subscription_data: { metadata: { workspace_id: workspace.id } }, allow_promotion_codes: true,
+          metadata: { plan,price_id:prices[plan] }, subscription_data: { metadata: { workspace_id: workspace.id } }, allow_promotion_codes: true,
           success_url: `${env.APP_URL}/?billing=success`, cancel_url: `${env.APP_URL}/?billing=canceled`
         });
         return session.url;
