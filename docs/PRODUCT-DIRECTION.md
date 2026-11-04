@@ -2,7 +2,7 @@
 
 Updated 4 November 2026. Product reference: GameServerApp. Aim: an affordable ARK-first management service that covers a community owner's daily work in one dashboard and Discord bot. Build an independent Rookrift experience around those workflows.
 
-Version 0.5 implements the first delivery milestone: persistent player profiles, private notes, team invitations and roles with server scopes, staff audit, and lower-priced defaults. Current defaults are Scout: 2 free servers and 2 tasks; Tribe: GBP 3.99/month for 5 servers and 3 staff seats; Cluster: GBP 9.99/month for 20 servers and 10 staff seats. Stripe products and existing subscription prices are configured separately. See [the teams and players guide](TEAM-AND-PLAYERS.md).
+Version 0.7 adds a public community hub, rules/news, events with capacity-limited RSVPs, Discord-authenticated join/staff applications and review, calendar tasks, scheduled Pterodactyl backup requests, and community bot commands. See [the feature guide](COMMUNITY.md). These join persistent player profiles, private notes, scoped teams and staff audit from 0.5, and PostgreSQL/Redis from 0.6. Current defaults remain Scout: 2 free servers and 2 tasks; Tribe: GBP 3.99/month for 5 servers and 3 staff seats; Cluster: GBP 9.99/month for 20 servers and 10 staff seats. Stripe products and existing subscription prices are configured separately.
 
 ## What to learn from GameServerApp
 
@@ -14,13 +14,13 @@ GSA distinguishes RconConnect from DediConnect. Its documentation says RconConne
 
 | Owner's job | Working in Rookrift | Next useful addition |
 | --- | --- | --- |
-| Monitor a cluster | RCON snapshots, player counts, health history, incidents, Discord alerts | Persistent player sessions, reliable join/leave events, public service status |
+| Monitor a cluster | RCON snapshots, player counts, health history, incidents, Discord alerts, opt-in public server status | Persistent player sessions and reliable join/leave events |
 | Moderate players | Kick/ban/unban history, profiles and private server-scoped staff notes, unified cluster list, opt-in exact-ID community ban lookup | Appeal tracking and imported ban-list reconciliation |
 | Share administration | Discord-bound invitations, dashboard roles and server scopes, staff audit; permission-gated Discord commands | Further game integrations for shared administration |
-| Run routine work | Interval saves/broadcasts, announcement templates, weekly maintenance windows, run history | Local-time task schedules, event triggers, sequential actions, restart countdowns, cooldowns and failure recovery |
-| Control the host | Verified Pterodactyl process controls, resources and backup creation/status | Scheduled provider backups, completion alerts, verified restore workflow, additional host adapters |
+| Run routine work | Interval and local-time weekday schedules for saves/broadcasts/backup requests, announcement templates, maintenance windows, run history | Event triggers, sequential actions, restart countdowns, cooldowns and failure recovery |
+| Control the host | Verified Pterodactyl process controls, resources, manual/scheduled backup requests and backup status | Completion alerts, verified restore workflow, additional host adapters |
 | Maintain game content | Separate ASE/ASA adapters | Versioned INI templates, previewed config changes, mod/update detection, optional host agent |
-| Serve the community | Discord bot and dashboard | Public cluster page, rules, whitelist applications, staff review, two-way chat where supported |
+| Serve the community | Public cluster hub, rules/news, events and RSVPs, join/staff applications and review, Discord hub/pending-count commands | Verified whitelist execution, forums, two-way chat where supported |
 | Fund the community | Stripe billing for the owner's Rookrift subscription | Separate player-facing supporter store, subscriptions, fulfillment jobs, role/perk expiry, refunds and delivery history |
 | Add another game | DayZ placeholder, disabled | Tested BattlEye transport and game capability matrix after the ARK workflows are proven |
 
@@ -52,15 +52,15 @@ Keep observed sessions honest: RCON polling can record approximate first/last si
 
 ### 2. Reduce repetitive work
 
-Add timezone-aware task schedules and a bounded sequence of actions: announce, wait, save, request provider restart, verify recovery, notify staff. Represent each step's outcome, stop on failures, limit retries, prevent overlapping runs, and suppress crash-recovery loops during maintenance. Event-triggered workflows need verified event sources, cooldowns, and deduplication. A restart should use an available host connector rather than assuming RCON can start a stopped process.
+Version 0.7 implements timezone-aware daily/weekday schedules and scheduled provider backup requests with run history. Next add a bounded sequence of actions: announce, wait, save, request provider restart, verify recovery, notify staff. Represent each step's outcome, stop on failures, limit retries, prevent overlapping runs, and suppress crash-recovery loops during maintenance. Event-triggered workflows need verified event sources, cooldowns, and deduplication. A restart should use an available host connector rather than assuming RCON can start a stopped process.
 
 ### 3. Improve backups and configuration
 
-Add scheduled provider backups with completion/failure notifications and explicit retention/cost settings. Restore needs an identifiable completed archive, exact target confirmation, and a recovery check. Then introduce configuration templates with a change preview, rollback, and a supported file/agent capability. Validate ASE and ASA separately. Extend host adapters based on pilot demand.
+Version 0.7 schedules backup requests through the verified provider connector. Next add completion/failure notifications and explicit retention/cost settings. Restore needs an identifiable completed archive, exact target confirmation, and a recovery check. Then introduce configuration templates with a change preview, rollback, and a supported file/agent capability. Validate ASE and ASA separately. Extend host adapters based on pilot demand.
 
 ### 4. Add the player-facing community layer
 
-Create a public cluster/status page, rules, applications and staff review. Next, design the supporter store: connected merchant accounts, order/payment reconciliation, idempotent queued delivery, offline-player handling, refund/revocation logic, and a visible delivery audit. In-game delivery and chat need tested game/plugin capabilities; unavailable actions should not be offered as working controls. Keep this distinct from the owner's platform subscription.
+Version 0.7 ships a public cluster/status hub, rules/news, events with RSVPs, join/staff applications and staff review. Next, design the supporter store: connected merchant accounts, order/payment reconciliation, idempotent queued delivery, offline-player handling, refund/revocation logic, and a visible delivery audit. In-game delivery and chat need tested game/plugin capabilities; unavailable actions should not be offered as working controls. Keep this distinct from the owner's platform subscription.
 
 ### 5. Broaden only after ARK retention improves
 

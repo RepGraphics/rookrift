@@ -1,4 +1,5 @@
 import {syncDemoProfiles} from './demo-profiles';
+import {ensureDemoCommunity} from './demo-community';
 import {tryIdentity} from '../shared/ban-identity';
 import { PLANS } from '../server/plans.js';
 const now = Date.now();
@@ -59,6 +60,7 @@ export function upgradeDemo(data) {
   data.backups ??= {d1:[{id:'backup-demo-1',name:'Daily world archive',bytes:840*1024**2,created_at:new Date(now-86400000).toISOString(),completed_at:new Date(now-86400000+60000).toISOString(),status:'completed'}]};
   data.runs ??= data.schedules.flatMap(task=>[{id:`run-${task.id}`,schedule_id:task.id,server_id:task.server_id,started_at:now-3600000,finished_at:now-3599000,status:'success',detail:'Simulated command acknowledged.'}]);
   syncDemoProfiles(data);
+  ensureDemoCommunity(data);
   return data;
 }
 export function demoHealth(server,hours=24) {

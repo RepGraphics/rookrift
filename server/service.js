@@ -6,6 +6,7 @@ import { runRcon } from './games.js';
 import { commandFor } from './games.js';
 import { maintenanceState, renderAnnouncement, observeHealth, notify } from './operations-state.js';
 import { observePlayers } from './player-profiles.js';
+import { nextRun,validTimeZone } from '../shared/scheduling.js';
 const serverFields = z.object({
   name: z.string().trim().min(2).max(60),
   game: z.enum(['asa', 'ase']),
@@ -29,9 +30,13 @@ export const serverUpdateSchema = serverFields.partial().extend({
 export const scheduleSchema = z.object({
   server_id: z.string().uuid(),
   name: z.string().trim().min(2).max(60),
-  action: z.enum(['save', 'broadcast']),
+  action: z.enum(['save', 'broadcast', 'backup']),
   message: z.string().trim().max(300).default(''),
-  interval_minutes: z.coerce.number().int().min(15).max(10080)
+  interval_minutes: z.coerce.number().int().min(15).max(10080).default(60),
+  schedule_type:z.enum(['interval','weekly']).default('interval'),
+  days:z.array(z.number().int().min(0).max(6)).min(1).max(7).refine(days=>new Set(days).size===days.length).default([0,1,2,3,4,5,6]),
+  start_time:z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/).default('04:00'),
+  time_zone:z.string().max(80).refine(validTimeZone,'Choose a valid IANA timezone.').default('UTC')
 }).strict().refine(data => data.action !== 'broadcast' || data.message.length > 0, {
   message: 'Broadcast message is required.'
 });
@@ -41,6 +46,7 @@ export const bulkSchema = z.object({
   message: z.string().trim().max(300).optional()
 }).strict();
 export function createService(db, vault, transport = runRcon) {
+  let requestBackup;
   const busy = new Set(),
     runningTasks = new Set();
   const workspace = async id => await db.prepare('SELECT * FROM workspaces WHERE id=?').get(id);
@@ -68,6 +74,7 @@ export function createService(db, vault, transport = runRcon) {
     return schedules[index];
   }
   return {
+    setBackupHandler(handler){requestBackup=handler;},
     getServer,
     getSchedule,
     async addServer(workspaceId, input) {
@@ -117,7 +124,8 @@ export function createService(db, vault, transport = runRcon) {
         await getServer(workspaceId, data.server_id);
         assertCapacity(ws, (await db.prepare('SELECT count(*) AS n FROM schedules WHERE workspace_id=?').get(workspaceId)).n, 'schedules');
         const id = randomUUID();
-        await db.prepare('INSERT INTO schedules(id,workspace_id,server_id,name,action,message,interval_minutes,next_run,enabled) VALUES(?,?,?,?,?,?,?,?,1)').run(id, workspaceId, data.server_id, data.name, data.action, data.message, data.interval_minutes, Date.now() + data.interval_minutes * 60000);
+        if(data.action==='backup'&&!await db.prepare('SELECT 1 FROM hosting_connections WHERE server_id=? AND workspace_id=?').get(data.server_id,workspaceId))throw Object.assign(new Error('Connect a hosting provider before scheduling backups.'),{status:400});
+        await db.prepare('INSERT INTO schedules(id,workspace_id,server_id,name,action,message,interval_minutes,next_run,enabled,schedule_type,days,start_time,time_zone) VALUES(?,?,?,?,?,?,?,?,1,?,?,?,?)').run(id, workspaceId, data.server_id, data.name, data.action, data.message, data.interval_minutes, nextRun(data),data.schedule_type,JSON.stringify(data.days),data.start_time,data.time_zone);
         await audit(db, workspaceId, 'Automation created', data.name);
         return await db.prepare('SELECT * FROM schedules WHERE id=?').get(id);
       });
@@ -133,12 +141,13 @@ export function createService(db, vault, transport = runRcon) {
           const original = await getSchedule(workspaceId, id, false);
           if (input && Object.keys(input).length === 1 && typeof input.enabled === 'boolean') {
             if (input.enabled) await getSchedule(workspaceId, id);
-            await db.prepare('UPDATE schedules SET enabled=?,next_run=? WHERE id=?').run(Number(input.enabled), input.enabled ? Date.now() + original.interval_minutes * 60000 : original.next_run, id);
+            await db.prepare('UPDATE schedules SET enabled=?,next_run=? WHERE id=?').run(Number(input.enabled), input.enabled ? nextRun(original) : original.next_run, id);
           } else {
             await getSchedule(workspaceId, id);
             const data = scheduleSchema.parse(input);
             await getServer(workspaceId, data.server_id);
-            await db.prepare('UPDATE schedules SET server_id=?,name=?,action=?,message=?,interval_minutes=?,next_run=? WHERE id=?').run(data.server_id, data.name, data.action, data.message, data.interval_minutes, Date.now() + data.interval_minutes * 60000, id);
+            if(data.action==='backup'&&!await db.prepare('SELECT 1 FROM hosting_connections WHERE server_id=? AND workspace_id=?').get(data.server_id,workspaceId))throw Object.assign(new Error('Connect a hosting provider before scheduling backups.'),{status:400});
+            await db.prepare('UPDATE schedules SET server_id=?,name=?,action=?,message=?,interval_minutes=?,next_run=?,schedule_type=?,days=?,start_time=?,time_zone=? WHERE id=?').run(data.server_id, data.name, data.action, data.message, data.interval_minutes, nextRun(data),data.schedule_type,JSON.stringify(data.days),data.start_time,data.time_zone,id);
           }
           await audit(db, workspaceId, 'Automation updated', original.name);
           return getSchedule(workspaceId, id, false);
@@ -183,12 +192,14 @@ export function createService(db, vault, transport = runRcon) {
             detail: 'Server is in maintenance mode.'
           };
         }
-        const result = await this.action(workspaceId, task.server_id, task.action, task.action === 'broadcast' ? renderAnnouncement(task.message, server) : task.message, `${actor}: ${task.name}`);
-        await db.prepare("UPDATE schedules SET last_run=?,last_status='success',last_detail=? WHERE id=?").run(Date.now(), 'Command acknowledged.', id);
-        await record('success', 'Command acknowledged.');
+        if(task.action==='backup'&&!requestBackup)throw Object.assign(new Error('Hosting backup execution is unavailable.'),{status:503});
+        const result = task.action==='backup'?await requestBackup(workspaceId,server):await this.action(workspaceId, task.server_id, task.action, task.action === 'broadcast' ? renderAnnouncement(task.message, server) : task.message, `${actor}: ${task.name}`);
+        const detail=task.action==='backup'?'Backup request accepted by provider. Check Hosting & backups for completion.':'Command acknowledged.';
+        await db.prepare("UPDATE schedules SET last_run=?,last_status='success',last_detail=? WHERE id=?").run(Date.now(), detail, id);
+        await record('success', detail);
         return {
           status: 'success',
-          detail: 'Command acknowledged.',
+          detail,
           output: result.output
         };
       } catch (error) {
@@ -300,7 +311,7 @@ export function createService(db, vault, transport = runRcon) {
         const schedules = (await db.prepare('SELECT * FROM schedules WHERE workspace_id=? ORDER BY sort_order').all(ws.id)).slice(0, effectivePlan(ws).schedules);
         for (const task of schedules.filter(s => s.enabled && s.next_run <= Date.now())) {
           // Claim before execution. Restarted processes never repeat a claimed task.
-          const result = await db.prepare('UPDATE schedules SET next_run=? WHERE id=? AND next_run=?').run(Date.now() + task.interval_minutes * 60000, task.id, task.next_run);
+          const result = await db.prepare('UPDATE schedules SET next_run=? WHERE id=? AND next_run=?').run(nextRun(task), task.id, task.next_run);
           if (!result.changes) continue;
           try {
             await this.runSchedule(ws.id, task.id, 'Automation');
@@ -318,6 +329,8 @@ export function createService(db, vault, transport = runRcon) {
         return await db.withWorkspaceLock(workspaceId, async () => {
           const server = await getServer(workspaceId, id, false);
           await db.prepare('DELETE FROM servers WHERE id=? AND workspace_id=?').run(id, workspaceId);
+          const site=await db.prepare('SELECT server_ids FROM community_sites WHERE workspace_id=?').get(workspaceId);
+          if(site)await db.prepare('UPDATE community_sites SET server_ids=?,updated_at=? WHERE workspace_id=?').run(JSON.stringify(JSON.parse(site.server_ids).filter(server=>server!==id)),Date.now(),workspaceId);
           for (const window of await db.prepare('SELECT id,server_ids FROM maintenance_windows WHERE workspace_id=?').all(workspaceId)) {
             const current = JSON.parse(window.server_ids);
             if (!current.includes(id)) continue;

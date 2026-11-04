@@ -21,6 +21,12 @@ export async function authorizeRequest(db, req) {
   if (access.role === 'owner') return;
   const admin = access.role === 'admin',
     write = admin || access.role === 'moderator';
+  if(/^\/community(?:\/|$)/.test(path)){
+    if(access.server_ids!==null)deny();
+    if(/^\/community\/applications(?:\/[^/]+)?$/.test(path)){if(write&&['GET','PATCH'].includes(method))return;if(admin&&method==='DELETE')return;deny();}
+    if(admin)return;
+    deny();
+  }
   const server = async id => {
     if (typeof id !== 'string' || !canSeeServer(access, id) || !(await db.prepare('SELECT id FROM servers WHERE id=? AND workspace_id=?').get(id, workspace.id))) missing();
   };

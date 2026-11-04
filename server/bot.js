@@ -1,9 +1,12 @@
+import {createCommunity} from './community.js';
 import { Client, GatewayIntentBits, PermissionFlagsBits, EmbedBuilder, SlashCommandBuilder, MessageFlags } from 'discord.js';
 import { listServers } from './db.js';
 import { effectivePlan } from './plans.js';
 export function commandDefinitions() {
   const builder = new SlashCommandBuilder().setName('rookrift').setDescription('Manage your survival servers').setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild).setContexts(0);
   builder.addSubcommand(c => c.setName('servers').setDescription('List your connected game servers'));
+  builder.addSubcommand(c=>c.setName('community').setDescription('Open your published community hub'));
+  builder.addSubcommand(c=>c.setName('applications').setDescription('Show the pending community application count'));
   builder.addSubcommand(c => c.setName('dashboard').setDescription('Open your command center'));
   builder.addSubcommand(c => c.setName('maintenance').setDescription('Pause scheduled tasks and alerts for a server').addStringOption(o => o.setName('server').setDescription('Choose a game server').setRequired(true).setAutocomplete(true)).addBooleanOption(o => o.setName('enabled').setDescription('Enable or end maintenance mode').setRequired(true)));
   for (const action of ['status', 'players', 'save', 'broadcast']) {
@@ -61,7 +64,7 @@ export async function startBot(db, service, env = process.env) {
       const action = interaction.options.getSubcommand();
       let title = 'Rookrift',
         description;
-      if (action === 'dashboard') description = env.APP_URL;else if (action === 'servers') {
+      if(action==='community'){const {site}=await createCommunity(db).manage(ws.id);description=site?.enabled?env.APP_URL+'/c/'+site.slug:'Publish a community page from Community hub in your dashboard first.';}else if(action==='applications'){const rows=await createCommunity(db).applications(ws.id);description=`${rows.length} pending application${rows.length===1?'':'s'}. Review privately in the dashboard: ${env.APP_URL}`;}else if (action === 'dashboard') description = env.APP_URL;else if (action === 'servers') {
         title = `${ws.name} · ${effectivePlan(ws).name}`;
         description = (await listServers(db, ws.id)).map((s, i) => `${i >= effectivePlan(ws).servers ? '⏸' : s.status === 'online' ? '🟢' : '⚪'} **${s.name}** · ${s.game.toUpperCase()} · ${s.status === 'online' ? s.players : '—'} players${s.maintenance ? ' · Maintenance' : ''}`).join('\n') || 'No servers yet. Add your first server in the dashboard.';
       } else if (action === 'maintenance') {

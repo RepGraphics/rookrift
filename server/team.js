@@ -78,7 +78,7 @@ export function createTeam(db) {
       const selection = await db.prepare('SELECT workspace_id FROM session_workspaces WHERE token_hash=?').get(session.token_hash);
       let id = selection?.workspace_id;
       id ??= (await listWorkspaces(session.user_id)).find(ws => ws.role === 'owner')?.id || (await listWorkspaces(session.user_id))[0]?.id;
-      if (!id) throw fail('No workspace is available. Sign in again.');
+      if(!id){await db.prepare('INSERT INTO workspaces(id,owner_id,created_at) VALUES(?,?,?) ON CONFLICT(owner_id) DO NOTHING').run(randomUUID(),session.user_id,Date.now());id=(await db.prepare('SELECT id FROM workspaces WHERE owner_id=?').get(session.user_id)).id;}
       const granted=await access(id,session.user_id);
       if(!granted){await db.prepare('DELETE FROM session_workspaces WHERE token_hash=?').run(session.token_hash);throw fail('Your access to this workspace has ended or is paused. Reload to return to your workspace.');}
       return {

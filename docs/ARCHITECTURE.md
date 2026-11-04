@@ -9,7 +9,8 @@ flowchart LR
   Service --> DB[(PostgreSQL)]
   API --> Cache[Redis metric cache]
   Service --> RCON[ASA / ASE Source RCON]
-  Scheduler[Persisted interval scheduler] --> Service
+  Scheduler[Persisted interval / local-calendar scheduler] --> Service
+  Community[Public community hub] --> API
   API --> OAuth[Discord OAuth]
   API --> Checkout[Stripe Checkout / portal]
   Stripe[Signed Stripe webhooks] --> API

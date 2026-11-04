@@ -1,6 +1,6 @@
 # Dokploy: PostgreSQL and Redis
 
-Rookrift 0.6 uses **PostgreSQL 18** as its primary database, suited to Rookrift's relational data and concurrent queries. **Redis 8** optionally caches metric aggregates. PostgreSQL stores all durable application data; Redis can be restarted or cleared without losing communities, credentials, notes or bans.
+Rookrift 0.7 uses **PostgreSQL 18** as its primary database, suited to Rookrift's relational data and concurrent queries. **Redis 8** optionally caches metric aggregates. PostgreSQL stores all durable application data; Redis can be restarted or cleared without losing communities, credentials, notes or bans.
 
 The hosted ChatGPT Site remains a browser-local demo. Your Dokploy application runs the live Node/Discord/RCON service and connects to these databases.
 

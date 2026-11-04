@@ -1,4 +1,5 @@
 import { createMetricsCache } from './cache.js';
+import { createCommunity } from './community.js';
 import { createTeam, staffAudit } from './team.js';
 import { authorizeRequest } from './access.js';
 import { buildDashboard } from './dashboard.js';
@@ -45,6 +46,8 @@ export function createApp({
   env = process.env
 }) {
   const operations = providedOperations || createOperations(db, vault, service, undefined, cache);
+  service.setBackupHandler?.((workspace,server)=>operations.hostingAction(workspace,server.id,{action:'backup',confirmation:server.name}));
+  const community = createCommunity(db);
   const banDirectory = createBanDirectory(db),
     team = createTeam(db),
     profiles = createPlayerProfiles(db);
@@ -73,7 +76,7 @@ export function createApp({
     });
   });
   app.use(express.json({
-    limit: '16kb'
+    limit: '64kb'
   }), cookieParser());
   app.get('/api/health', (_, res) => res.json({
     status: 'ok',
@@ -124,6 +127,8 @@ export function createApp({
       ...cookieOptions,
       maxAge: 600000
     });
+    if(typeof req.query.return_to==='string'&&/^\/c\/[a-z0-9-]{3,48}$/.test(req.query.return_to))res.cookie('rookrift_return',req.query.return_to,{...cookieOptions,maxAge:600000});
+    else res.clearCookie('rookrift_return',cookieOptions);
     const params = new URLSearchParams({
       client_id: env.DISCORD_CLIENT_ID,
       response_type: 'code',
@@ -160,15 +165,34 @@ export function createApp({
     const token = await response.json(),
       user = await discordFetch('/users/@me', token.access_token);
     await db.prepare('INSERT INTO users VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,avatar=excluded.avatar,access_token=excluded.access_token').run(user.id, user.global_name || user.username, user.avatar || null, vault.encrypt(token.access_token));
-    await db.prepare('INSERT INTO workspaces(id,owner_id,created_at) VALUES(?,?,?) ON CONFLICT DO NOTHING').run(randomUUID(), user.id, Date.now());
+    const returnPath=typeof req.cookies.rookrift_return==='string'&&/^\/c\/[a-z0-9-]{3,48}$/.test(req.cookies.rookrift_return)?req.cookies.rookrift_return:'';
+    if(!returnPath)await db.prepare('INSERT INTO workspaces(id,owner_id,created_at) VALUES(?,?,?) ON CONFLICT DO NOTHING').run(randomUUID(), user.id, Date.now());
     const session = randomBytes(32).toString('hex'),
       csrf = randomBytes(24).toString('hex');
     await db.prepare('INSERT INTO sessions VALUES(?,?,?,?)').run(hash(session), user.id, csrf, Date.now() + 7 * 86400000);
+    res.clearCookie('rookrift_return',cookieOptions);
     res.cookie('rookrift_session', session, {
       ...cookieOptions,
       maxAge: 7 * 86400000
-    }).redirect(origin);
+    }).redirect(origin+returnPath);
   });
+  // Public community routes deliberately precede the dashboard workspace middleware.
+  app.use('/api/public',async(req,res,next)=>{
+    res.set('Cache-Control','no-store');
+    const token=req.cookies.rookrift_session;
+    req.visitor=token?await db.prepare('SELECT u.id,u.name,s.csrf FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>?').get(hash(token),Date.now()):null;
+    if(!['GET','HEAD','OPTIONS'].includes(req.method)){
+      if(!req.visitor){res.status(401).json({error:'Sign in with Discord to continue.'});return;}
+      if(req.get('Origin')!==origin||req.get('X-CSRF-Token')!==req.visitor.csrf){res.status(403).json({error:'Request verification failed. Refresh the community page.'});return;}
+    }
+    next();
+  });
+  const communityWrites=rateLimit({windowMs:3600000,limit:30,standardHeaders:'draft-8',legacyHeaders:false});
+  app.get('/api/public/communities/:slug',async(req,res)=>res.json(await community.publicPage(req.params.slug,req.visitor)));
+  app.post('/api/public/communities/:slug/applications',communityWrites,async(req,res)=>res.status(201).json(await community.apply(req.params.slug,req.visitor,req.body)));
+  app.delete('/api/public/communities/:slug/applications/:id',communityWrites,async(req,res)=>res.json(await community.withdraw(req.params.slug,req.visitor,req.params.id)));
+  app.post('/api/public/communities/:slug/events/:id/rsvp',communityWrites,async(req,res)=>res.json(await community.rsvp(req.params.slug,req.visitor,req.params.id,req.body?.attending)));
+  app.use('/api/public',(_,res)=>res.status(404).json({error:'Community endpoint not found.'}));
   app.use('/api', async (req, res, next) => {
     const sessionToken = req.cookies.rookrift_session;
     const session = sessionToken && (await db.prepare('SELECT * FROM sessions WHERE token_hash=? AND expires_at>?').get(hash(sessionToken), Date.now()));
@@ -191,7 +215,7 @@ export function createApp({
       return;
     }
     await authorizeRequest(db, req);
-    if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && /^\/(servers|schedules|templates|maintenance-windows|incidents|moderation)(\/|$)/.test(req.path)) {
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && /^\/(servers|schedules|templates|maintenance-windows|incidents|moderation|community)(\/|$)/.test(req.path)) {
       const action = req.method + ' ' + req.path,
         workspace = req.workspace.id,
         user = req.user,
@@ -213,6 +237,17 @@ export function createApp({
     env
   })));
   app.get('/api/workspaces', async (req, res) => res.set('Cache-Control', 'no-store').json(await team.listWorkspaces(req.auth.user_id)));
+  app.get('/api/community',async(req,res)=>res.json(await community.manage(req.workspace.id)));
+  app.put('/api/community/site',async(req,res)=>res.json(await community.saveSite(req.workspace.id,req.body)));
+  app.post('/api/community/posts',async(req,res)=>res.status(201).json(await community.savePost(req.workspace.id,null,req.body)));
+  app.patch('/api/community/posts/:id',async(req,res)=>res.json(await community.savePost(req.workspace.id,req.params.id,req.body)));
+  app.delete('/api/community/posts/:id',async(req,res)=>res.json(await community.remove(req.workspace.id,'posts',req.params.id)));
+  app.post('/api/community/events',async(req,res)=>res.status(201).json(await community.saveEvent(req.workspace.id,null,req.body)));
+  app.patch('/api/community/events/:id',async(req,res)=>res.json(await community.saveEvent(req.workspace.id,req.params.id,req.body)));
+  app.delete('/api/community/events/:id',async(req,res)=>res.json(await community.remove(req.workspace.id,'events',req.params.id)));
+  app.get('/api/community/applications',async(req,res)=>res.json(await community.applications(req.workspace.id,req.query.status||'pending')));
+  app.patch('/api/community/applications/:id',async(req,res)=>res.json(await community.review(req.workspace.id,req.params.id,req.body,req.user)));
+  app.delete('/api/community/applications/:id',async(req,res)=>res.json(await community.removeApplication(req.workspace.id,req.params.id)));
   app.post('/api/workspaces/switch', async (req, res) => {
     const value = z.object({
       workspace_id: z.string().min(1).max(100)
