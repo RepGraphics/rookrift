@@ -4,13 +4,16 @@
 
 This is a runnable MVP starter, with working backend integrations that require your credentials. The hosted Site is an **interactive, browser-local demo**, separate from the live backend. It does not connect to real servers, run a Discord bot, or collect payments. A real service needs a continuously running Node host with outbound TCP access; a static website or Cloudflare Worker cannot run this process.
 
+The product direction is an affordable ARK-first service covering the daily workflows found in GameServerApp: player administration, automation, host controls, team access, and community tools. The [product comparison and roadmap](docs/PRODUCT-DIRECTION.md) records current capabilities, gaps, delivery priorities, and a lower-price launch proposal. Proposed future features and prices are labelled separately from the working application.
+
 ## Try the dashboard
 
 Requires Node.js 24+.
 
 ```powershell
-cd C:\Users\rep\Downloads\Sub\rookrift
-npm install
+git clone https://github.com/RepGraphics/rookrift.git
+cd rookrift
+npm ci
 npm run dev
 ```
 
