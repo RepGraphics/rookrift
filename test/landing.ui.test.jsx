@@ -9,6 +9,13 @@ import {PLANS} from '../server/plans';
 beforeEach(()=>{localStorage.clear();sessionStorage.clear();window.history.replaceState(null,'','/');});
 afterEach(()=>{cleanup();vi.restoreAllMocks();vi.unstubAllGlobals();});
 
+test('the landing page defaults to dark and remembers an optional light theme across account and dashboard views',async()=>{
+ const user=userEvent.setup();let view=render(<LandingPage/>);expect(document.querySelector('.landing-page').dataset.landingTheme).toBe('dark');expect(document.documentElement.dataset.theme).toBe('dark');await user.click(screen.getByRole('button',{name:'Switch to light mode'}));expect(document.querySelector('.landing-page').dataset.landingTheme).toBe('light');expect(localStorage.getItem('rookrift-theme')).toBe('light');view.unmount();
+ view=render(<LandingPage/>);expect(document.querySelector('.landing-page').dataset.landingTheme).toBe('light');view.unmount();view=render(<AuthPage demo/>);expect(screen.getByRole('button',{name:'Switch to dark mode'})).toBeTruthy();await user.click(screen.getByRole('button',{name:'Switch to dark mode'}));view.unmount();render(<LandingPage/>);expect(document.querySelector('.landing-page').dataset.landingTheme).toBe('dark');
+});
+test('a missing or invalid saved theme falls back to dark and the switch works without browser storage',async()=>{
+ localStorage.setItem('rookrift-theme','unknown');let view=render(<LandingPage/>);expect(document.querySelector('.landing-page').dataset.landingTheme).toBe('dark');view.unmount();vi.stubGlobal('localStorage',{getItem(){throw new Error('Storage disabled');},setItem(){throw new Error('Storage disabled');}});const user=userEvent.setup();render(<LandingPage/>);await user.click(screen.getByRole('button',{name:'Switch to light mode'}));expect(document.querySelector('.landing-page').dataset.landingTheme).toBe('light');
+});
 test('the public homepage showcases the service before requesting account details',()=>{
  const fetch=vi.fn();vi.stubGlobal('fetch',fetch);render(<SiteRouter/>);
  expect(screen.getByRole('heading',{level:1,name:/Your worlds/})).toBeTruthy();expect(screen.getByRole('link',{name:'Get started free'}).getAttribute('href')).toBe('/register');expect(within(screen.getByRole('banner')).getByRole('link',{name:'Sign in'}).getAttribute('href')).toBe('/login');

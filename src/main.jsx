@@ -1,3 +1,4 @@
+import {useTheme} from './use-theme';
 import {authDestination,communityReturn} from '../shared/navigation';
 import {hostingCapabilities} from '../shared/hosting-providers';
 import {ConfigPage} from './config-ui';
@@ -54,9 +55,8 @@ export function LoginPage({ error='auth', retry, themeControl, initialRegister=f
 }
 
 function useAppearance(){
-  const [theme,setTheme]=useState(()=>{try{return localStorage.getItem('rookrift-theme')||'dark';}catch{return 'dark';}});
-  useEffect(()=>{document.documentElement.dataset.theme=theme;document.querySelector('meta[name="theme-color"]')?.setAttribute('content',theme==='dark'?'#191d23':'#f3f5f7');try{localStorage.setItem('rookrift-theme',theme);}catch{}},[theme]);
-  return <button className="icon-button theme-toggle" onClick={()=>setTheme(v=>v==='light'?'dark':'light')} aria-label={'Switch to '+(theme==='light'?'dark':'light')+' mode'} title={'Switch to '+(theme==='light'?'dark':'light')+' mode'}>{theme==='light'?<Moon size={18}/>:<Sun size={18}/>}</button>;
+  const {theme,toggleTheme}=useTheme();
+  return <button className="icon-button theme-toggle" onClick={toggleTheme} aria-label={'Switch to '+(theme==='light'?'dark':'light')+' mode'} title={'Switch to '+(theme==='light'?'dark':'light')+' mode'}>{theme==='light'?<Moon size={18}/>:<Sun size={18}/>}</button>;
 }
 
 export function AuthPage({register=false,demo=isDemo}){
