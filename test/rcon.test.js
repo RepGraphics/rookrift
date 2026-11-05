@@ -33,3 +33,32 @@ test('malformed RCON packet lengths are rejected without a parser loop or proces
   server.listen(0, '127.0.0.1'); await once(server, 'listening'); t.after(() => server.close());
   await assert.rejects(sourceRcon({ host: '127.0.0.1', port: server.address().port, password: 'test', command: 'ListPlayers', timeout: 1000 }), /Invalid RCON packet length/);
 });
+test('ARK response markers wait for the first reply and retain split responses', async t => {
+  const sockets = new Set(), timers = new Set(); let markerBeforeReply = false;
+  const packet = (id, type, text) => { const body = Buffer.from(text), value = Buffer.alloc(body.length + 14); value.writeInt32LE(body.length + 10); value.writeInt32LE(id, 4); value.writeInt32LE(type, 8); body.copy(value, 12); return value; };
+  const later = (callback, delay) => { const timer = setTimeout(callback, delay); timers.add(timer); return timer; };
+  const server = createServer(socket => {
+    sockets.add(socket); socket.on('error', () => {}); socket.on('close', () => sockets.delete(socket));
+    let pending = Buffer.alloc(0), started = false, commandTimer;
+    socket.on('data', chunk => {
+      pending = Buffer.concat([pending, chunk]);
+      while (pending.length >= 4 && pending.length >= pending.readInt32LE(0) + 4) {
+        const length = pending.readInt32LE(0), request = pending.subarray(0, length + 4); pending = pending.subarray(length + 4);
+        const id = request.readInt32LE(4), type = request.readInt32LE(8), text = request.subarray(12, -2).toString();
+        if (type === 3) socket.write(packet(id, 2, ''));
+        else if (text) commandTimer = later(() => {
+          started = true; socket.write(packet(id, 0, '0. Survivor\n'));
+          later(() => socket.write(packet(id, 0, '1. Bob')), 15);
+        }, 30);
+        else if (!started) {
+          // A live ASE server rejects pipelined command/empty-marker packets.
+          markerBeforeReply = true; clearTimeout(commandTimer); socket.write(packet(0, 0, 'Bad packet'));
+        } else later(() => socket.write(packet(id, 0, '')), 35);
+      }
+    });
+  });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  t.after(() => { for (const timer of timers) clearTimeout(timer); for (const socket of sockets) socket.destroy(); server.close(); });
+  const reply = await sourceRcon({ host: '127.0.0.1', port: server.address().port, password: 'test', command: 'ListPlayers', timeout: 1000 });
+  assert.equal(markerBeforeReply, false); assert.equal(reply, '0. Survivor\n1. Bob');
+});

@@ -6,11 +6,12 @@ function encode(id, type, text) {
   return packet;
 }
 // Source RCON uses little-endian length/id/type fields and two NUL terminators.
-// Replies may span TCP chunks or multiple packets. An empty command acts as a
-// response boundary; an idle fallback supports hosts that omit its response.
+// Replies may span TCP chunks or multiple packets. Send an empty response marker
+// after the first reply: ARK can reject a command batched with its marker. An
+// idle fallback supports hosts that omit the marker response.
 export function sourceRcon({ host, port, password, command, timeout = 7000 }) {
   return new Promise((resolve, reject) => {
-    let pending = Buffer.alloc(0), authenticated = false, done = false, bytes = 0, idle;
+    let pending = Buffer.alloc(0), authenticated = false, markerSent = false, done = false, bytes = 0, idle;
     const output = [];
     const socket = createConnection({ host, port });
     const deadline = setTimeout(() => finish(new Error('RCON timed out.')), timeout);
@@ -34,9 +35,10 @@ export function sourceRcon({ host, port, password, command, timeout = 7000 }) {
         const id = packet.readInt32LE(4), type = packet.readInt32LE(8);
         if (id === -1) { finish(new Error('RCON authentication failed.')); return; }
         if (!authenticated && id === 1 && type === 2) {
-          authenticated = true; socket.write(encode(2, 2, command)); socket.write(encode(3, 2, ''));
+          authenticated = true; socket.write(encode(2, 2, command));
         } else if (authenticated && id === 2 && type === 0) {
           output.push(packet.subarray(12, packet.length - 2)); clearTimeout(idle);
+          if (!markerSent) { markerSent = true; socket.write(encode(3, 2, '')); }
           idle = setTimeout(() => finish(), 200);
         } else if (authenticated && id === 3 && type === 0 && output.length) finish();
       }
