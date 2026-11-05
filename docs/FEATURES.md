@@ -63,3 +63,8 @@ Under **Activity log**, combine level, server, and text filters. **Export visibl
 For release 0.6, use the PostgreSQL deployment and explicit SQLite import procedure in [DOKPLOY.md](DOKPLOY.md). Keep the original encryption key, stop the old application before taking its consistent snapshot, and do not run old/new backends against separate stores simultaneously. Register commands again and verify a test connection, task, maintenance and alert.
 
 Existing demo workspaces are upgraded locally with group names, snapshot data, and default alert settings, preserving your prior server and automation edits.
+
+
+## Community growth (0.9)
+
+The [community hub](COMMUNITY.md) now includes independent join/staff forms and a multi-page site editor with private drafts and publication. The [storefront](STOREFRONT.md) supports separate connected merchant accounts, one-time purchases, payment/refund verification and staff delivery records. [Hosting connectors](HOSTING-PROVIDERS.md) support Pterodactyl, Pelican and Nitrado according to each provider?s tested API capabilities.

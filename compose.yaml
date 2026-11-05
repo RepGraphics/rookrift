@@ -4,8 +4,8 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      NODE_ENV: production
-      PORT: 3000
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: ${PORT:-3000}
       DATABASE_URL: ${DATABASE_URL:-}
       PGHOST: postgres
       PGPORT: 5432
@@ -50,7 +50,7 @@ services:
       REDISCLI_AUTH: ${REDIS_PASSWORD:?Set REDIS_PASSWORD}
     command: ["/bin/sh", "-c", 'exec redis-server --requirepass "$$REDIS_PASSWORD" --maxmemory 128mb --maxmemory-policy allkeys-lru --save "" --appendonly no']
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping"]
       interval: 10s
       timeout: 3s
       retries: 10

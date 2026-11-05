@@ -1,4 +1,4 @@
-# Community hub and calendar automations
+# Community hub, site editor and calendar automations
 
 Release 0.7 adds community workflows inspired by the jobs covered by [GameServerApp community tools](https://www.gameserverapp.com/feature/community-tools) and [scheduled tasks](https://www.gameserverapp.com/feature/automations-tasks). Rookrift implements these independently using the existing ARK adapters, staff permissions and subscription allowances.
 
@@ -8,7 +8,7 @@ Open **Community hub → Community page**. Set a name, address, introduction, Di
 
 New installations start with no published page. Publishing is explicit. Unpublishing returns 404 for the public page and closes its public API, applications and RSVPs. Changing the address breaks existing links. The ChatGPT Site retains its existing owner-private audience and demonstrates these pages using browser-local sample data; use your Dokploy domain for a real public community page.
 
-The public server list includes selected, plan-entitled servers only. It exposes names, game/map labels, status, player counts/capacity and the last check time. RCON addresses/ports, credentials, player identities, staff notes, incidents and draft news remain private. Checks older than three minutes show unknown status. Maintenance is labelled separately. Public API responses are not cached in Redis or by shared HTTP caches.
+The public server list includes selected, plan-entitled servers only. It exposes names, game/map labels, status, player counts/capacity and the last check time. Connection details are hidden unless the owner explicitly enables their display. Credentials, player identities, staff notes, incidents and draft news remain private. Checks older than three minutes show unknown status. Maintenance is labelled separately. Public API responses are not cached in Redis or by shared HTTP caches.
 
 ## News
 
@@ -18,11 +18,11 @@ Use **News → Write an update** to create a draft. Enable publication when it i
 
 Create an event with a start/end time, details and optional capacity. Enter times in the timezone displayed by your browser; they are stored as absolute instants and displayed in each visitor's local timezone. Events may last up to seven days. Capacity 0 means unlimited places. Cancel an event to keep its notice visible while closing new RSVPs, or remove it and its RSVPs.
 
-Discord sign-in is required to reserve a place. One account reserves at most one place per event. Event row locks prevent concurrent requests from exceeding capacity. Members can cancel their own reservation; names and account IDs are not exposed in public RSVP counts. New reservations close at the event start time. Past events remain on the public calendar for 30 days. Staff can edit capacity provided it remains at least the existing reservation count.
+A local account or Discord sign-in is required to reserve a place. One account reserves at most one place per event. Event row locks prevent concurrent requests from exceeding capacity. Members can cancel their own reservation; names and account IDs are not exposed in public RSVP counts. New reservations close at the event start time. Past events remain on the public calendar for 30 days. Staff can edit capacity provided it remains at least the existing reservation count.
 
 ## Applications and staff review
 
-Enable applications in page settings and write up to six required questions, one per line. The same questions support **join** and **staff** applications. Applicants sign in with Discord, select ASE or ASA, supply their game identifier, answer the questions and acknowledge the rules. Form revisions prevent old forms from being submitted against changed questions. Questions/answers are snapshotted for review.
+In page settings, **Join Requests** and **Staff Applications** each have their own enabled toggle and up to six required questions, one per line. Disable either to hide its public menu/hero option and reject new submissions of that kind. Disable both to hide both application options. Existing submissions remain in separate staff review views. Applicants sign in with a local account or Discord, select ASE or ASA, supply their game identifier, answer the relevant questions and acknowledge the rules. Form revisions prevent old forms from being submitted against changed questions. Questions/answers are snapshotted for review.
 
 Game IDs are **self-reported**. A Discord sign-in proves control of that Discord account, not control of the supplied UUID/EOSID/Steam ID. Application approval records a staff decision and applicant-visible message. It does not automatically whitelist a player, grant a game role, link player identities or deliver a paid perk. Staff should verify identity and apply in-game access separately.
 
@@ -38,7 +38,7 @@ Open **Automations → New automation**. Choose **Local time & weekdays**, selec
 
 The scheduler runs once per chosen local day. It skips nonexistent daylight-saving times and uses the first occurrence of a repeated time. Downtime and maintenance do not cause a catch-up storm: each due task advances to its next future occurrence before execution. Failed actions are recorded without automatic retries. A manual **Run now** does not change the next scheduled occurrence. Pausing/resuming or editing recalculates the next future run.
 
-Scheduled actions are **save world**, **announcement** and **request provider backup**. Backups require a verified Pterodactyl connection for that server and use the same provider-action locks as manual host controls. They do not send a backup command over RCON. A successful scheduled backup run means the provider accepted the request; check **Operations → Hosting & backups** for completion/failure and storage use. Provider quotas, retention and storage charges remain under the owner's hosting account. Rookrift does not automatically delete provider archives.
+Scheduled actions are **save world**, **announcement** and **request provider backup**. Backups require a verified Pterodactyl or Pelican connection for that server and use the same provider-action locks as manual host controls. They do not send a backup command over RCON. A successful scheduled backup run means the provider accepted the request; check **Operations → Hosting & backups** for completion/failure and storage use. Provider quotas, retention and storage charges remain under the owner's hosting account. Rookrift does not automatically delete provider archives.
 
 Calendar and backup tasks use the existing scheduled-task allowance, including plan pauses and maintenance suppression. A single application runtime is still required; see [Dokploy setup](DOKPLOY.md).
 
@@ -48,4 +48,13 @@ Community tools are included in the existing plans. News/event record limits per
 
 PostgreSQL migration 2 applies automatically at startup and preserves existing schedules as interval tasks. Retain a database backup before upgrading. No new environment variables are required. Re-register Discord slash commands with `npm run bot:register`: `/rookrift community` returns the published hub link and `/rookrift applications` returns the pending count for the linked guild's authorised administrators. Bot replies remain private.
 
-The working additions do not constitute feature parity with GSA. Multi-step/event-triggered workflows, automatic whitelist execution, merchant accounts/store fulfillment, configuration deployment and host agents remain separate future work.
+Release 0.9 also ships a [community storefront](STOREFRONT.md) and [Nitrado/Pelican connectors](HOSTING-PROVIDERS.md). Automatic whitelist execution, automatic in-game item delivery, recurring supporter perks, forums, mod installation and host agents remain future work.
+
+
+## Site editor (0.9)
+
+Save your page details, then open **Community hub ? Site editor**. Choose Forest, Ocean, Slate or Ember; edit the hero introduction; add up to six pages and twelve sections per page. Text, HTTPS images, linked callouts, live selected-server cards, published news and upcoming events are available. Move pages/sections up or down and inspect the draft preview. Content is escaped plain text; arbitrary HTML and scripts are not accepted.
+
+**Save draft** stores the design privately. **Publish design** saves and publishes the current draft; public visitors receive only the published design. **Restore published design** discards unsaved/draft layout edits in favour of the last published layout. Undo keeps up to 25 editor changes in memory. Page navigation uses `?page=your-page-address`; built-in server/news/event/rule/store/application addresses are reserved. News and event publications still follow their own settings.
+
+Migration 8 backfills the former application toggle/questions into both independent forms and adds the site design/store tables. Existing hubs continue to show their default layout until a custom design is published.

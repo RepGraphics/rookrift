@@ -1,5 +1,7 @@
 import { createMetricsCache } from './cache.js';
 import { createCommunity } from './community.js';
+import {createCommunityDesign} from './community-design.js';
+import {createCommunityStore} from './community-store.js';
 import {createWorkflows} from './workflows.js';
 import {createConfigLibrary} from './config-library.js';
 import {sendAlert} from './bot.js';
@@ -15,7 +17,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 import { z } from 'zod';
-import { hash } from './crypto.js';
+import { hash, hashPassword, verifyPassword } from './crypto.js';
 import { effectivePlan, PLANS } from './plans.js';
 import { listServers, publicServer, playerSnapshot, audit } from './db.js';
 import { GAMES, resolveTarget } from './games.js';
@@ -23,6 +25,7 @@ import { serverSchema, serverUpdateSchema } from './service.js';
 import { createOperations } from './operations.js';
 import { maintenanceState } from './operations-state.js';
 import { createBanDirectory } from './ban-directory.js';
+import { createPlatformAdmin } from './platform-admin.js';
 const discordFetch = async (path, token) => {
   const response = await fetch(`https://discord.com/api/v10${path}`, {
     headers: {
@@ -41,6 +44,7 @@ export function createApp({
   vault,
   service,
   billing,
+  store:providedStore,
   operations: providedOperations,
   workflows:providedWorkflows,
   configurations:providedConfigurations,
@@ -55,20 +59,23 @@ export function createApp({
   const workflows=providedWorkflows||createWorkflows(db,service,operations,{send:(ws,message)=>sendAlert(getBot(),ws,message)});
   const configurations=providedConfigurations||createConfigLibrary(db,vault,service,operations);
   const community = createCommunity(db);
+  const siteDesign=createCommunityDesign(db),store=providedStore||createCommunityStore(db,env);
   const banDirectory = createBanDirectory(db),
     team = createTeam(db),
-    profiles = createPlayerProfiles(db);
+    profiles = createPlayerProfiles(db),
+    platformAdmin = createPlatformAdmin(db, community, vault, env);
   const app = express(),
     origin = new URL(env.APP_URL || 'http://localhost:3000').origin;
   const secure = env.NODE_ENV === 'production';
   app.locals.workflows=workflows;
   app.locals.configurations=configurations;
+  app.locals.store=store;
   app.disable('x-powered-by');
   app.set('trust proxy', Number(env.TRUST_PROXY_HOPS || 0));
   app.use(helmet({
     contentSecurityPolicy: {
       directives: {
-        'img-src': ["'self'", 'data:', 'https://cdn.discordapp.com'],
+        'img-src': ["'self'", 'data:', 'https:'],
         'style-src': ["'self'", "'unsafe-inline'"],
         'script-src': ["'self'"],
         'connect-src': ["'self'"]
@@ -84,6 +91,7 @@ export function createApp({
       received: true
     });
   });
+  app.post('/api/webhooks/community-stripe',express.raw({type:'application/json',limit:'1mb'}),async(req,res)=>{await store.webhook(req.body,req.headers['stripe-signature']);res.json({received:true});});
   app.use(express.json({
     limit: '64kb'
   }), cookieParser());
@@ -188,35 +196,79 @@ export function createApp({
       maxAge: 7 * 86400000
     }).redirect(origin+returnPath);
   });
+  const authLimiter = rateLimit({ windowMs: 900000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false });
+  const emailSchema = z.string().trim().toLowerCase().email().max(254);
+  const passwordSchema = z.string().min(8).max(128);
+  const issueSession = async userId => {
+    const session = randomBytes(32).toString('hex'), csrf = randomBytes(24).toString('hex');
+    await db.prepare('INSERT INTO sessions VALUES(?,?,?,?)').run(hash(session), userId, csrf, Date.now() + 7 * 86400000);
+    return {token:session,csrf};
+  };
+  const createSession = async (userId, res) => {
+    const {token:session}=await issueSession(userId);
+    res.cookie('rookrift_session', session, { ...cookieOptions, maxAge: 7 * 86400000 });
+  };
+  app.post('/auth/register', authLimiter, async (req, res) => {
+    const input = z.object({ email: emailSchema, password: passwordSchema, name: z.string().trim().min(2).max(80) }).strict().parse(req.body);
+    const existing = await db.prepare('SELECT user_id FROM local_accounts WHERE email=?').get(input.email);
+    if (existing) throw Object.assign(new Error('An account already exists for that email.'), { status: 409 });
+    const userId = randomUUID();
+    await db.transaction(async () => {
+      await db.prepare('INSERT INTO users VALUES(?,?,?,?)').run(userId, input.name, null, '');
+      await db.prepare('INSERT INTO local_accounts VALUES(?,?,?,?)').run(userId, input.email, await hashPassword(input.password), Date.now());
+      await db.prepare('INSERT INTO workspaces(id,owner_id,created_at) VALUES(?,?,?)').run(randomUUID(), userId, Date.now());
+    });
+    await createSession(userId, res);
+    res.status(201).json({ ok: true });
+  });
+  app.post('/auth/login', authLimiter, async (req, res) => {
+    const input = z.object({ email: emailSchema, password: z.string().max(128) }).strict().parse(req.body);
+    const account = await db.prepare('SELECT u.id, u.name, EXISTS(SELECT 1 FROM suspended_users s WHERE s.user_id=u.id) AS suspended, a.password_hash FROM local_accounts a JOIN users u ON u.id=a.user_id WHERE a.email=?').get(input.email);
+    if (!account || account.suspended || !(await verifyPassword(input.password, account.password_hash))) throw Object.assign(new Error('Email or password is incorrect.'), { status: 401 });
+    await createSession(account.id, res);
+    res.json({ ok: true });
+  });
   // Public community routes deliberately precede the dashboard workspace middleware.
   app.use('/api/public',async(req,res,next)=>{
     res.set('Cache-Control','no-store');
     const token=req.cookies.rookrift_session;
-    req.visitor=token?await db.prepare('SELECT u.id,u.name,s.csrf FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>?').get(hash(token),Date.now()):null;
+    req.visitor=token?await db.prepare('SELECT u.id,u.name,s.csrf FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>? AND NOT EXISTS(SELECT 1 FROM suspended_users x WHERE x.user_id=u.id)').get(hash(token),Date.now()):null;
     if(!['GET','HEAD','OPTIONS'].includes(req.method)){
-      if(!req.visitor){res.status(401).json({error:'Sign in with Discord to continue.'});return;}
+      if(!req.visitor){res.status(401).json({error:'Sign in to continue.'});return;}
       if(req.get('Origin')!==origin||req.get('X-CSRF-Token')!==req.visitor.csrf){res.status(403).json({error:'Request verification failed. Refresh the community page.'});return;}
     }
     next();
   });
   const communityWrites=rateLimit({windowMs:3600000,limit:30,standardHeaders:'draft-8',legacyHeaders:false});
   app.get('/api/public/communities/:slug',async(req,res)=>res.json(await community.publicPage(req.params.slug,req.visitor)));
+  app.get('/api/public/communities/:slug/store',async(req,res)=>res.json(await store.publicPage(req.params.slug,req.visitor)));
+  app.get('/api/public/communities/:slug/store/orders',async(req,res)=>res.json(await store.buyerOrders(req.params.slug,req.visitor)));
+  app.post('/api/public/communities/:slug/store/checkout',communityWrites,async(req,res)=>res.json(await store.checkout(req.params.slug,req.visitor,req.body)));
+  app.post('/api/public/communities/:slug/store/orders/:id/refresh',communityWrites,async(req,res)=>res.json(await store.refreshBuyerOrder(req.params.slug,req.visitor,req.params.id)));
   app.post('/api/public/communities/:slug/applications',communityWrites,async(req,res)=>res.status(201).json(await community.apply(req.params.slug,req.visitor,req.body)));
   app.delete('/api/public/communities/:slug/applications/:id',communityWrites,async(req,res)=>res.json(await community.withdraw(req.params.slug,req.visitor,req.params.id)));
   app.post('/api/public/communities/:slug/events/:id/rsvp',communityWrites,async(req,res)=>res.json(await community.rsvp(req.params.slug,req.visitor,req.params.id,req.body?.attending)));
   app.use('/api/public',(_,res)=>res.status(404).json({error:'Community endpoint not found.'}));
   app.use('/api', async (req, res, next) => {
     const sessionToken = req.cookies.rookrift_session;
-    const session = sessionToken && (await db.prepare('SELECT * FROM sessions WHERE token_hash=? AND expires_at>?').get(hash(sessionToken), Date.now()));
+    const session = sessionToken && (await db.prepare(`SELECT s.*,EXISTS(SELECT 1 FROM platform_impersonations p WHERE p.session_token_hash=s.token_hash) AS impersonating
+      FROM sessions s WHERE s.token_hash=? AND s.expires_at>?`).get(hash(sessionToken), Date.now()));
     if (!session) {
       res.status(401).json({
-        error: 'Sign in with Discord to continue.'
+        error: 'Sign in to continue.'
       });
       return;
     }
     req.auth = session;
     res.set('Cache-Control', 'no-store');
-    req.user = await db.prepare('SELECT id,name,avatar FROM users WHERE id=?').get(session.user_id);
+    req.user = await db.prepare(`SELECT id,name,avatar,EXISTS(SELECT 1 FROM platform_admins p WHERE p.user_id=users.id) AS platform_admin,
+      EXISTS(SELECT 1 FROM suspended_users s WHERE s.user_id=users.id) AS suspended FROM users WHERE id=?`).get(session.user_id);
+    if (req.user.suspended) { res.status(403).json({error:'This platform account is suspended.'}); return; }
+    if(/^\/platform(?:\/|$)/.test(req.path)){
+      if(!req.user.platform_admin&&!(['POST'].includes(req.method)&&req.path==='/platform/exit-impersonation'&&session.impersonating)){res.status(403).json({error:'Platform administrator access required.'});return;}
+      if(!['GET','HEAD','OPTIONS'].includes(req.method)&&(req.get('Origin')!==origin||req.get('X-CSRF-Token')!==session.csrf)){res.status(403).json({error:'Request verification failed. Refresh the dashboard.'});return;}
+      next(); return;
+    }
     const context = await team.resolve(session);
     req.workspace = context.workspace;
     req.access = context.access;
@@ -270,13 +322,25 @@ export function createApp({
   app.post('/api/workflow-runs/:id/cancel',async(req,res)=>res.json(await workflows.cancel(req.workspace.id,req.params.id,req.user)));
   app.get('/api/community',async(req,res)=>res.json(await community.manage(req.workspace.id)));
   app.put('/api/community/site',async(req,res)=>res.json(await community.saveSite(req.workspace.id,req.body)));
+  app.get('/api/community/site-builder',async(req,res)=>res.json(await siteDesign.view(req.workspace.id)));
+  app.put('/api/community/site-builder',async(req,res)=>res.json(await siteDesign.save(req.workspace.id,req.body)));
+  app.post('/api/community/site-builder/publish',async(req,res)=>res.json(await siteDesign.publish(req.workspace.id)));
+  app.post('/api/community/site-builder/reset',async(req,res)=>res.json(await siteDesign.reset(req.workspace.id)));
+  app.get('/api/community/store',async(req,res)=>res.json(await store.manage(req.workspace.id)));
+  app.put('/api/community/store/settings',async(req,res)=>res.json(await store.settings(req.workspace.id,req.body)));
+  app.post('/api/community/store/products',async(req,res)=>res.status(201).json(await store.product(req.workspace.id,null,req.body)));
+  app.patch('/api/community/store/products/:id',async(req,res)=>res.json(await store.product(req.workspace.id,req.params.id,req.body)));
+  app.delete('/api/community/store/products/:id',async(req,res)=>res.json(await store.archive(req.workspace.id,req.params.id)));
+  app.post('/api/community/store/connect',async(req,res)=>res.json(await store.connect(req.workspace.id)));
+  app.post('/api/community/store/payments/refresh',async(req,res)=>res.json(await store.refreshAccount(req.workspace.id)));
+  app.post('/api/community/store/orders/:id/fulfill',async(req,res)=>res.json(await store.fulfill(req.workspace.id,req.params.id,req.body,req.user)));
   app.post('/api/community/posts',async(req,res)=>res.status(201).json(await community.savePost(req.workspace.id,null,req.body)));
   app.patch('/api/community/posts/:id',async(req,res)=>res.json(await community.savePost(req.workspace.id,req.params.id,req.body)));
   app.delete('/api/community/posts/:id',async(req,res)=>res.json(await community.remove(req.workspace.id,'posts',req.params.id)));
   app.post('/api/community/events',async(req,res)=>res.status(201).json(await community.saveEvent(req.workspace.id,null,req.body)));
   app.patch('/api/community/events/:id',async(req,res)=>res.json(await community.saveEvent(req.workspace.id,req.params.id,req.body)));
   app.delete('/api/community/events/:id',async(req,res)=>res.json(await community.remove(req.workspace.id,'events',req.params.id)));
-  app.get('/api/community/applications',async(req,res)=>res.json(await community.applications(req.workspace.id,req.query.status||'pending')));
+  app.get('/api/community/applications',async(req,res)=>res.json(await community.applications(req.workspace.id,req.query.status||'pending',req.query.kind||'all')));
   app.patch('/api/community/applications/:id',async(req,res)=>res.json(await community.review(req.workspace.id,req.params.id,req.body,req.user)));
   app.delete('/api/community/applications/:id',async(req,res)=>res.json(await community.removeApplication(req.workspace.id,req.params.id)));
   app.post('/api/workspaces/switch', async (req, res) => {
@@ -480,6 +544,21 @@ export function createApp({
   app.post('/api/billing/portal', async (req, res) => res.json({
     url: await billing.portal(req.workspace)
   }));
+  app.get('/api/platform', async (req,res)=>res.set('Cache-Control','no-store').json(await platformAdmin.overview(req.user)));
+  app.get('/api/platform/bootstrap', async (req,res)=>res.set('Cache-Control','no-store').json({...await platformAdmin.overview(req.user),csrf:req.auth.csrf}));
+  app.patch('/api/platform/settings', async (req,res)=>res.json(await platformAdmin.updateSettings(req.user,req.body)));
+  app.patch('/api/platform/workspaces/:id', async (req,res)=>res.json(await platformAdmin.updateWorkspace(req.user,req.params.id,req.body)));
+  app.put('/api/platform/workspaces/:id/community', async (req,res)=>res.json(await platformAdmin.updateCommunity(req.user,req.params.id,req.body)));
+  app.patch('/api/platform/users/:id/suspension', async (req,res)=>res.json(await platformAdmin.suspend(req.user,req.params.id,req.body?.suspended)));
+  app.post('/api/platform/users/:id/revoke-sessions', async (req,res)=>res.json(await platformAdmin.revokeSessions(req.user,req.params.id)));
+  app.post('/api/platform/users/:id/impersonate', async (req,res)=>{
+    const session=await platformAdmin.impersonate(req.user,req.params.id,issueSession);
+    res.cookie('rookrift_session',session.token,{...cookieOptions,maxAge:7*86400000}).json({ok:true});
+  });
+  app.post('/api/platform/exit-impersonation', async (req,res)=>{
+    const session=await platformAdmin.exitImpersonation(req.auth,issueSession);
+    res.cookie('rookrift_session',session.token,{...cookieOptions,maxAge:7*86400000}).json({ok:true});
+  });
   app.use('/api', (_, res) => res.status(404).json({
     error: 'Endpoint not found.'
   }));

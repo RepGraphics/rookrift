@@ -16,19 +16,19 @@ flowchart LR
   Config --> DB
   Config --> Panel[Pterodactyl client file API]
   Community[Public community hub] --> API
-  API --> OAuth[Discord OAuth]
+  API --> OAuth[Discord OAuth / local accounts]
   API --> Checkout[Stripe Checkout / portal]
   Stripe[Signed Stripe webhooks] --> API
   Reconcile[Subscription reconciliation] --> Checkout
 ```
 
-`server/index.js` owns process lifecycle, gateway startup, monitoring, the scheduler, and periodic billing reconciliation. `server/app.js` handles OAuth, sessions, CSRF, schemas, REST routes, and static production assets. `server/service.js` is shared by browser actions, bot commands, and scheduled tasks, so limits cannot be bypassed by switching interfaces.
+`server/index.js` owns process lifecycle, gateway startup, monitoring, the scheduler, and periodic billing reconciliation. `server/app.js` handles local account and OAuth sign-in, sessions, CSRF, schemas, REST routes, and static production assets. `server/service.js` is shared by browser actions, bot commands, and scheduled tasks, so limits cannot be bypassed by switching interfaces.
 
 Each Discord identity owns one workspace and can join others through a target-bound invitation. Every server, schedule, activity record, and Stripe subscription belongs to a workspace. `server/team.js` resolves membership, role, plan seat entitlement and explicit server scope on every authenticated request. `server/access.js` authorizes dashboard routes, while `server/dashboard.js` filters bootstrap records and metrics before serialization. A guild may be linked to one workspace only. Discord community members with Manage Server retain the separate bot permission model.
 
 Resource mutations do not accept a workspace or actor override. A dedicated CSRF-protected workspace-switch route validates access and records a selection per login session; subsequent requests recheck that membership. Server deletion and controls resolve the target within that workspace and granted scope before side effects. Paid access comes from current subscription status and configured current/legacy entitled prices. Checkout additionally validates the advertised GBP amount and monthly interval. Unknown prices and non-active payment statuses use the free plan.
 
-RCON and Discord access tokens are encrypted with AES-256-GCM and random IVs. Browser sessions use random 256-bit opaque tokens whose hashes are stored in PostgreSQL. Production cookies use Secure, HttpOnly, and SameSite=Lax. OAuth state is hashed, short-lived, bound to a browser cookie, and claimed once through an atomic DELETE RETURNING. Mutating authenticated requests require an exact Origin and CSRF header. No encryption key is shipped to the browser.
+RCON and Discord access tokens are encrypted with AES-256-GCM and random IVs. Local account passwords use salted scrypt hashes. Browser sessions use random 256-bit opaque tokens whose hashes are stored in PostgreSQL. Production cookies use Secure, HttpOnly, and SameSite=Lax. OAuth state is hashed, short-lived, bound to a browser cookie, and claimed once through an atomic DELETE RETURNING. Mutating authenticated requests require an exact Origin and CSRF header. No encryption key is shipped to the browser.
 
 Public target validation rejects loopback, link-local, private, multicast, and reserved IP ranges unless an operator opts into private connectivity. DNS results are validated and pinned. In production, enforce network egress rules in addition to application validation. A compromised host must not have unrestricted access to internal infrastructure.
 
@@ -53,6 +53,12 @@ CSV generation is shared and tested independently. It exports only visible activ
 Scaling boundaries remain one Discord/scheduler runtime with local game-command locks. PostgreSQL advisory leases enforce that boundary, including stop-first deployments. Multi-replica workers need a separate queue/job design. PostgreSQL and Redis improve request I/O and aggregation costs without implicitly distributing the scheduler.
 
 `server/operations.js` provides owner-scoped announcement templates, windows, metrics, incidents, notifications, moderation, execution-history reads, and hosting links. `server/operations-state.js` shares monitoring/maintenance behavior with the scheduler; pure wall-clock and template helpers live under `shared/operations.js`. Outage counters open one incident after the configured consecutive-failure threshold and reset during maintenance/recovery. Notifications are persistent records, separate from Discord delivery.
+
+Platform administration is intentionally separate from workspace authorization.
+The `platform_admins` table grants access to the platform console; workspace
+owners retain control only over their own community workspace. Platform support
+impersonation is tracked in `platform_impersonations` and can be exited without
+changing the target account's password.
 
 `server/hosting.js` implements a bounded HTTPS Pterodactyl adapter. It pins a validated address while preserving normal TLS/hostname verification, never follows redirects, bounds response size/time, and whitelists returned provider fields. Keys are encrypted on storage and decrypted only for server-side requests. Power/backup mutations require exact server-name confirmation and a per-server lock; the API records acceptance rather than inventing completion. The Docker runtime includes the shared helpers.
 

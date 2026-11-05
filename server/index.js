@@ -12,11 +12,12 @@ async function tick(){
   try{
     await service.runDueSchedules();await service.pollAll((ws,message)=>sendAlert(bot,ws,message));
     if(cycle++%15===0)await billing.reconcile();
+    await store?.reconcile();
     await db.prepare('DELETE FROM sessions WHERE expires_at<?').run(Date.now());
     await db.prepare('DELETE FROM oauth_states WHERE expires_at<?').run(Date.now());
   }catch{console.error('Background cycle failed; retrying next minute.');}finally{active=false;}
 }
-let service,billing;
+let service,billing,store;
 async function stop(code=0){
   if(stopping)return;stopping=true;clearInterval(interval);clearInterval(workflowTimer);bot?.destroy();
   const closing=server?new Promise(resolve=>server.close(resolve)):Promise.resolve();
@@ -28,9 +29,13 @@ async function start(){
   if(process.env.NODE_ENV==='production'&&!process.env.APP_URL.startsWith('https://'))throw new Error('Production APP_URL must use HTTPS.');
   const vault=createVault(process.env.ENCRYPTION_KEY);
   db=await openDatabase();
+  const platformSettings=await db.prepare('SELECT key,value FROM platform_settings').all();
+  const settingEnv={discord_client_id:'DISCORD_CLIENT_ID',discord_client_secret:'DISCORD_CLIENT_SECRET',discord_bot_token:'DISCORD_BOT_TOKEN',stripe_connect_secret_key:'STRIPE_CONNECT_SECRET_KEY',stripe_connect_webhook_secret:'STRIPE_CONNECT_WEBHOOK_SECRET',stripe_secret_key:'STRIPE_SECRET_KEY',stripe_webhook_secret:'STRIPE_WEBHOOK_SECRET',stripe_tribe_monthly_price_id:'STRIPE_TRIBE_MONTHLY_PRICE_ID',stripe_cluster_monthly_price_id:'STRIPE_CLUSTER_MONTHLY_PRICE_ID'};
+  for(const setting of platformSettings){const name=settingEnv[setting.key];if(name&&!process.env[name])process.env[name]=vault.decrypt(setting.value);}
   await db.acquireRuntimeLock(()=>{console.error('PostgreSQL runtime lease lost; stopping to prevent duplicate workers.');process.exit(1);});
   cache=createMetricsCache();cache.start();service=createService(db,vault);billing=createBilling(db);
   const app=createApp({db,vault,service,billing,cache,getBot:()=>bot});
+  store=app.locals.store;
   workflows=app.locals.workflows;await app.locals.configurations.recover();await workflows.recover();
   server=app.listen(Number(process.env.PORT||3000),()=>console.log('Rookrift is ready with PostgreSQL storage.'));
   interval=setInterval(tick,60000);void tick();
@@ -39,4 +44,4 @@ async function start(){
   startBot(db,service,process.env,workflows).then(client=>{if(stopping)client?.destroy();else bot=client;}).catch(()=>console.error('Discord bot could not connect. Check its token and restart to retry.'));
 }
 process.on('SIGINT',()=>void stop());process.on('SIGTERM',()=>void stop());
-start().catch(async()=>{console.error('Rookrift startup failed. Check APP_URL, ENCRYPTION_KEY, PostgreSQL connectivity, and that only one runtime is active.');await cache?.close();await db?.close().catch(()=>{});process.exit(1);});
+start().catch(async(error)=>{console.error('Rookrift startup failed:',error instanceof Error?error.message:error);await cache?.close();await db?.close().catch(()=>{});process.exit(1);});

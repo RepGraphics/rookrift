@@ -1,0 +1,29 @@
+import React from 'react';
+import {render,screen,within,cleanup,fireEvent} from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import {App} from '../src/main.jsx';
+import {CommunityPortal} from '../src/community-ui.jsx';
+import {HostingConnectionForm} from '../src/hosting-ui.jsx';
+beforeEach(()=>{localStorage.clear();window.history.replaceState(null,'','/');});afterEach(cleanup);
+const stored=()=>JSON.parse(localStorage.getItem('rookrift-demo-v1'));
+async function hub(user){await user.click(screen.getByRole('button',{name:'Community hub'}));await screen.findByLabelText('Community name');}
+
+test('both application sections can be disabled and disappear from the public menu',async()=>{
+ const user=userEvent.setup(),app=render(<App/>);await hub(user);await user.click(screen.getByLabelText('Accept join requests'));await user.click(screen.getByLabelText('Accept staff applications'));await user.click(screen.getByRole('button',{name:'Save community page'}));
+ expect(stored().community.site.join_requests_open).toBe(false);expect(stored().community.site.staff_applications_open).toBe(false);app.unmount();render(<CommunityPortal slug="the-outpost" demo/>);await screen.findByRole('heading',{name:'The Outpost'});
+ const nav=screen.getByRole('navigation',{name:'Community sections'});expect(within(nav).queryByRole('button',{name:'Join Requests'})).toBeNull();expect(within(nav).queryByRole('button',{name:'Staff Applications'})).toBeNull();
+});
+test('site editor saves a private draft and publishes custom pages with escaped text',async()=>{
+ const user=userEvent.setup();let app=render(<App/>);await hub(user);await user.click(screen.getByRole('button',{name:'Site editor'}));const text=await screen.findByLabelText('Section 1 text');fireEvent.change(text,{target:{value:'<script>draft()</script> Welcome to the new season.'}});await user.selectOptions(screen.getByLabelText('Site colour theme'),'ocean');await user.click(screen.getByRole('button',{name:'Save draft'}));expect(stored().community.design.published_at).toBeNull();app.unmount();
+ let portal=render(<CommunityPortal slug="the-outpost" demo/>);await screen.findByRole('heading',{name:'The Outpost'});expect(screen.queryByText('<script>draft()</script> Welcome to the new season.')).toBeNull();portal.unmount();
+ app=render(<App/>);await hub(user);await user.click(screen.getByRole('button',{name:'Site editor'}));await screen.findByLabelText('Section 1 text');await user.click(screen.getByRole('button',{name:'Publish design'}));expect(stored().community.design.published_at).toBeTruthy();app.unmount();
+ portal=render(<CommunityPortal slug="the-outpost" demo/>);await screen.findByRole('heading',{name:'The Outpost'});expect(screen.getByText('<script>draft()</script> Welcome to the new season.')).toBeTruthy();expect(document.querySelector('script')).toBeNull();expect(document.querySelector('.community-portal').dataset.communityTheme).toBe('ocean');
+});
+test('demo storefront supports catalog setup, a simulated purchase and a staff delivery record',async()=>{
+ const user=userEvent.setup();let app=render(<App/>);await hub(user);await user.click(screen.getByRole('button',{name:'Store & orders'}));await user.click(await screen.findByRole('button',{name:'Connect Stripe'}));await user.click(await screen.findByRole('button',{name:'Refresh payment status'}));await user.click(screen.getByLabelText('Show the store on your community page'));await user.click(screen.getByRole('button',{name:'Save store settings'}));await user.click(screen.getByRole('button',{name:'Add product'}));await user.type(screen.getByLabelText('Product name'),'Explorer supplies');await user.type(screen.getByLabelText('What the buyer receives'),'A building kit delivered by community staff.');await user.click(screen.getByLabelText('Publish product'));await user.click(screen.getByRole('button',{name:'Save product'}));expect(stored().community.store.products[0].price).toBe(500);app.unmount();
+ const portal=render(<CommunityPortal slug="the-outpost" demo/>);await screen.findByRole('heading',{name:'The Outpost'});await user.click(screen.getByRole('button',{name:'Store'}));await user.click(await screen.findByRole('button',{name:'Buy Explorer supplies'}));await user.type(screen.getByLabelText(/Your UUID/),'DEMO-EOS-BUYER');await user.click(screen.getByRole('checkbox',{name:/I have read the product/}));await user.click(screen.getByRole('button',{name:'Simulate purchase'}));await screen.findByText('Paid · Awaiting staff delivery');expect(stored().community.store.orders[0].identifier).toBe('DEMO-EOS-BUYER');portal.unmount();
+ app=render(<App/>);await hub(user);await user.click(screen.getByRole('button',{name:'Store & orders'}));await user.click(await screen.findByRole('button',{name:'Record delivery'}));await user.type(screen.getByLabelText('Delivery note'),'Delivered at the community hub.');await user.click(screen.getByRole('button',{name:'Mark as delivered'}));expect(stored().community.store.orders[0].fulfillment_status).toBe('fulfilled');
+});
+test('Nitrado connection form fixes the API origin and requires its service identifier',async()=>{
+ const submit=vi.fn(),user=userEvent.setup();render(<HostingConnectionForm busy={false} submit={submit}/>);await user.selectOptions(screen.getByLabelText('Hosting provider'),'nitrado');expect(screen.queryByLabelText('HTTPS panel origin')).toBeNull();await user.type(screen.getByLabelText(/^Nitrado service ID/),'12345');await user.type(screen.getByLabelText(/^Nitrado API token/),'sample-token');await user.click(screen.getByRole('button',{name:'Verify & connect panel'}));expect(submit).toHaveBeenCalledWith({provider:'nitrado',remote_id:'12345',api_key:'sample-token',origin:'https://api.nitrado.net'});
+});

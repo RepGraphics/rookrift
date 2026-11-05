@@ -1,3 +1,4 @@
+import {hostingCapabilities} from '../shared/hosting-providers';
 import React, { useState } from 'react';
 import { Server, Users, Radio, MoreHorizontal, ArrowRight, Search, Folder, Save, Send, RefreshCw, Wrench, Pencil, Play, Trash2, Workflow, Clock3, Download, LockKeyhole, CheckCircle2, XCircle, Activity, Check,History,Shield } from 'lucide-react';
 import {inMaintenance} from '../shared/operations';
@@ -54,7 +55,7 @@ export function AutomationEditor({ schedule, preset, servers, submit, busy, demo
   const initial=schedule||preset;
   const [action, setAction] = useState(initial?.action || 'save');
   const [mode,setMode]=useState(initial?.schedule_type||'interval'),[serverId,setServerId]=useState(initial?.server_id||''),[days,setDays]=useState(initial?.days?(typeof initial.days==='string'?JSON.parse(initial.days):initial.days):[0,1,2,3,4,5,6]),[time,setTime]=useState(initial?.start_time||'04:00'),[zone,setZone]=useState(initial?.time_zone||'Europe/London'),[error,setError]=useState('');
-  const backupReady=hostingLinks.some(link=>link.server_id===serverId);
+  const backupReady=hostingLinks.some(link=>link.server_id===serverId&&hostingCapabilities(link.provider).backups);
   const intervals = [...new Set([15,30,60,120,360,1440,10080, initial?.interval_minutes || 60])].sort((a,b) => a-b);
   return <form className="form-body" onSubmit={event => { event.preventDefault(); const values = Object.fromEntries(new FormData(event.currentTarget));if(!days.length||!validTimeZone(zone)){setError('Choose at least one day and a valid IANA timezone.');return;}setError('');submit({name:values.name,server_id:serverId,message:values.message||'',action,interval_minutes:Number(values.interval_minutes||initial?.interval_minutes||60),schedule_type:mode,days,start_time:time,time_zone:zone}); }}>
     <Field label="Automation name"><input autoFocus required name="name" defaultValue={initial?.name || ''} minLength={2} maxLength={60} placeholder="e.g. Hourly world save"/></Field>

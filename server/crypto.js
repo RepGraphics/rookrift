@@ -1,5 +1,19 @@
-import { createCipheriv, createDecipheriv, randomBytes, createHash } from 'node:crypto';
+import { createCipheriv, createDecipheriv, randomBytes, createHash, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
+import { promisify } from 'node:util';
+const scrypt = promisify(scryptCallback);
 export const hash = value => createHash('sha256').update(value).digest('hex');
+export async function hashPassword(password) {
+  const salt = randomBytes(16);
+  const key = await scrypt(password, salt, 64);
+  return `scrypt$${salt.toString('hex')}$${Buffer.from(key).toString('hex')}`;
+}
+export async function verifyPassword(password, encoded) {
+  const [, saltHex, keyHex] = String(encoded || '').split('$');
+  if (!saltHex || !keyHex || !/^[a-f0-9]{32}$/i.test(saltHex) || !/^[a-f0-9]{128}$/i.test(keyHex)) return false;
+  const expected = Buffer.from(keyHex, 'hex');
+  const actual = Buffer.from(await scrypt(password, Buffer.from(saltHex, 'hex'), expected.length));
+  return timingSafeEqual(actual, expected);
+}
 export function createVault(secret) {
   if (!/^[a-f0-9]{64}$/i.test(secret || '')) throw new Error('ENCRYPTION_KEY must be 64 hex characters. See .env.example.');
   const key = Buffer.from(secret, 'hex');

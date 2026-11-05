@@ -1,3 +1,4 @@
+import {assertHostingCapability} from '../shared/hosting-providers.js';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { assertCapacity, assertServerEntitled, effectivePlan } from './plans.js';
@@ -126,7 +127,7 @@ export function createService(db, vault, transport = runRcon) {
         await getServer(workspaceId, data.server_id);
         assertCapacity(ws, (await db.prepare('SELECT count(*) AS n FROM schedules WHERE workspace_id=?').get(workspaceId)).n, 'schedules');
         const id = randomUUID();
-        if(data.action==='backup'&&!await db.prepare('SELECT 1 FROM hosting_connections WHERE server_id=? AND workspace_id=?').get(data.server_id,workspaceId))throw Object.assign(new Error('Connect a hosting provider before scheduling backups.'),{status:400});
+        if(data.action==='backup'){const connection=await db.prepare('SELECT provider FROM hosting_connections WHERE server_id=? AND workspace_id=?').get(data.server_id,workspaceId);if(!connection)throw Object.assign(new Error('Connect a hosting provider before scheduling backups.'),{status:400});assertHostingCapability(connection.provider,'backups');}
         await db.prepare('INSERT INTO schedules(id,workspace_id,server_id,name,action,message,interval_minutes,next_run,enabled,schedule_type,days,start_time,time_zone) VALUES(?,?,?,?,?,?,?,?,1,?,?,?,?)').run(id, workspaceId, data.server_id, data.name, data.action, data.message, data.interval_minutes, nextRun(data),data.schedule_type,JSON.stringify(data.days),data.start_time,data.time_zone);
         await audit(db, workspaceId, 'Automation created', data.name);
         return await db.prepare('SELECT * FROM schedules WHERE id=?').get(id);
@@ -148,7 +149,7 @@ export function createService(db, vault, transport = runRcon) {
             await getSchedule(workspaceId, id);
             const data = scheduleSchema.parse(input);
             await getServer(workspaceId, data.server_id);
-            if(data.action==='backup'&&!await db.prepare('SELECT 1 FROM hosting_connections WHERE server_id=? AND workspace_id=?').get(data.server_id,workspaceId))throw Object.assign(new Error('Connect a hosting provider before scheduling backups.'),{status:400});
+            if(data.action==='backup'){const connection=await db.prepare('SELECT provider FROM hosting_connections WHERE server_id=? AND workspace_id=?').get(data.server_id,workspaceId);if(!connection)throw Object.assign(new Error('Connect a hosting provider before scheduling backups.'),{status:400});assertHostingCapability(connection.provider,'backups');}
             await db.prepare('UPDATE schedules SET server_id=?,name=?,action=?,message=?,interval_minutes=?,next_run=?,schedule_type=?,days=?,start_time=?,time_zone=? WHERE id=?').run(data.server_id, data.name, data.action, data.message, data.interval_minutes, nextRun(data),data.schedule_type,JSON.stringify(data.days),data.start_time,data.time_zone,id);
           }
           await audit(db, workspaceId, 'Automation updated', original.name);

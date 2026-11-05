@@ -98,3 +98,10 @@ Existing subscriptions and Stripe price IDs are unchanged by the database move. 
 The application uses pooled asynchronous queries, indexed relational reads, connection-bound transactions, workspace row locks for quotas, and batched player snapshots. The external database supports concurrent requests without blocking Node's event loop; it does not by itself make the Discord/scheduler process a multi-replica worker system.
 
 References: [Dokploy databases](https://docs.dokploy.com/docs/core/databases), [Dokploy Compose domains](https://docs.dokploy.com/docs/core/docker-compose/domains), [PostgreSQL official image](https://hub.docker.com/_/postgres), [node-postgres transactions](https://node-postgres.com/features/transactions), [Redis production guidance](https://redis.io/docs/latest/develop/clients/nodejs/produsage/).
+
+
+## Release 0.9 community tools
+
+Startup applies migrations 4?8 in order, preserving existing accounts, platform settings and community pages. Back up PostgreSQL and retain the original encryption key before upgrading. The former application setting becomes two independently configurable forms. New site designs and storefronts stay unpublished/disabled until configured.
+
+For real merchant payments, configure **separate** `STRIPE_CONNECT_SECRET_KEY` and `STRIPE_CONNECT_WEBHOOK_SECRET`, then restart the application. They can also be entered into encrypted platform settings. Follow [storefront setup](STOREFRONT.md) for connected-account webhooks and test-mode validation; the existing Rookrift subscription webhook is unchanged. Provider credentials are entered per game server in the dashboard, not copied into the frontend. See [provider capabilities and token setup](HOSTING-PROVIDERS.md).

@@ -6,7 +6,7 @@ This is a runnable MVP starter, with working backend integrations that require y
 
 Production storage uses **PostgreSQL 18**, with optional **Redis 8** chart caching. For your deployment, follow the [Dokploy setup and SQLite migration guide](docs/DOKPLOY.md). Existing SQLite data needs an explicit import with its original encryption key before starting the new backend.
 
-The product direction is an affordable ARK-first service covering the daily workflows found in GameServerApp: player administration, automation, host controls, team access, and community tools. Release 0.8 adds a multi-step workflow builder, restart countdowns, calendar/incident/webhook triggers, durable execution/cancellation, verified backups and restart recovery, staff notifications and Discord workflow controls. It also adds versioned INI patch templates, live change previews, stopped-server Pterodactyl configuration deployment and encrypted guarded rollback. The community hub, news/events/RSVPs, applications, teams and profiles remain included. See [workflows](docs/WORKFLOWS.md), [configuration](docs/CONFIGURATION.md), [the community and automation guide](docs/COMMUNITY.md), [the teams and players guide](docs/TEAM-AND-PLAYERS.md), and the [product comparison and remaining gaps](docs/PRODUCT-DIRECTION.md).
+The product direction is an affordable ARK-first service covering daily player administration, automation, hosting, team access and community tools. Release **0.9** adds independently switchable Join Requests and Staff Applications, a multi-page community site editor with drafts/live preview/publishing, a separate Stripe Connect storefront with verified orders and staff delivery records, plus Nitrado and Pelican hosting connectors. It preserves local accounts and platform administration, multi-step workflows and versioned INI deployment/rollback. Read the [community guide](docs/COMMUNITY.md), [storefront setup](docs/STOREFRONT.md), [provider capability matrix](docs/HOSTING-PROVIDERS.md), [workflows](docs/WORKFLOWS.md), [configuration](docs/CONFIGURATION.md), and [remaining product gaps](docs/PRODUCT-DIRECTION.md).
 
 ## Try the dashboard
 
@@ -37,10 +37,14 @@ Open the printed address, normally http://127.0.0.1:5173. Demo changes persist i
 - Player kick/ban/unban controls with server-reported identity checks, internal reasons, and a moderation audit trail.
 - Persistent typed player profiles with first/last sightings, observed-server history, search/presence filters, and private server-scoped staff notes.
 - Discord-bound team invitations, owner/admin/moderator/viewer roles, per-server access, session workspace switching, staff audit, and immediate enforcement of changed/revoked grants on subsequent API requests.
+- Explicit platform-root administration is separate from workspace ownership: platform roots can inspect users and workspaces, edit workspace/billing/Discord/community settings, revoke sessions, suspend accounts, and enter reversible support views.
 - Players ? Ban lookup: a private unified cluster ban list and exact UUID/EOSID/Steam64/game-ID lookup across opt-in communities, with game scope, withdrawn reports, pagination, and private reasons excluded from sharing. See [the ban directory guide](docs/BAN-DIRECTORY.md).
-- Verified Pterodactyl client API connections for process resources, start/stop/restart requests, and provider backup creation/status.
+- Pterodactyl and Pelican connections for process resources, power, backups and configuration; Nitrado service connections for state and power, with backend capability checks.
+- Independent Join Requests and Staff Applications, separate questions/review queues, and public menu visibility tied to each toggle.
+- Community site editor with four themes, up to six pages, reordered text/images/callouts/live server/news/event sections, private drafts and explicit publication.
+- Separate Stripe Connect community stores: catalog, hosted checkout, verified payments, immutable purchase terms, buyer history, refunds/disputes and staff delivery records.
 - Internal server notes and configurable consecutive-failure thresholds for outage incidents.
-- Discord OAuth sign-in with state validation and secure, revocable sessions.
+- Email/password account creation and sign-in plus Discord OAuth, with state validation and secure, revocable sessions.
 - Discord slash commands with autocomplete, guild-only execution, Manage Server checks, workspace ownership, and private responses.
 - Stripe Checkout, customer portal, verified/idempotent webhooks, current-state reconciliation, and server-side entitlements.
 - Pooled asynchronous PostgreSQL persistence, transactional quota checks, batched player snapshots, optional Redis chart caching with database fallback, and a read-only SQLite importer.
@@ -84,7 +88,7 @@ In the [Discord Developer Portal](https://discord.com/developers/applications):
 3. Add the exact OAuth redirect URI: `APP_URL/auth/discord/callback`. Set `DISCORD_REDIRECT_URI` to that same full URL.
 4. Enable server installation with `bot` and `applications.commands`. The bot uses only the Guilds intent; privileged member and message-content intents are unnecessary.
 5. Run `npm run bot:register`. Set `DISCORD_DEV_GUILD_ID` first for immediate testing in a development guild; omit it for global registration.
-6. Sign in on the live dashboard, use **Discord bot → Add Rookrift**, then link a Discord server you manage in **Settings**. An alert channel is optional. The bot needs View Channel, Send Messages, and Embed Links there.
+6. Create an account or sign in on the live dashboard (Discord OAuth is also available), use **Discord bot → Add Rookrift**, then link a Discord server you manage in **Settings**. An alert channel is optional. The bot needs View Channel, Send Messages, and Embed Links there.
 
 Commands:
 

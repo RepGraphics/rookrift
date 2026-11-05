@@ -45,7 +45,7 @@ export async function buildDashboard({
   })}` : null;
   const scoped = rows => rows.filter(row => visible.has(row.server_id));
   return {
-    user: req.user,
+    user: {...req.user, platform_admin: Boolean(req.user.platform_admin), impersonating: Boolean(req.auth.impersonating)},
     workspace: {
       id: ws.id,
       name: ws.name,

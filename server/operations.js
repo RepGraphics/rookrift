@@ -1,3 +1,4 @@
+import {hostingCapabilities,assertHostingCapability} from '../shared/hosting-providers.js';
 import { createMetricsCache } from './cache.js';
 import {assertWorkflowIdle} from './workflows.js';
 import { randomUUID } from 'node:crypto';
@@ -34,14 +35,14 @@ export const windowSchema = z.object({
   enabled: z.boolean().default(true)
 }).strict();
 export const hostingSchema = z.object({
-  provider: z.literal('pterodactyl'),
+  provider: z.enum(['pterodactyl','pelican','nitrado']),
   origin: z.string().url().max(250).refine(value => {
     const url = new URL(value);
     return url.protocol === 'https:' && !url.username && !url.password && url.pathname === '/' && !url.search && !url.hash;
   }, 'Enter only the HTTPS panel origin.'),
-  remote_id: z.string().regex(/^[a-zA-Z0-9-]{8,64}$/),
+  remote_id: z.string().regex(/^[a-zA-Z0-9-]{1,64}$/),
   api_key: z.string().trim().max(512).regex(/^[\x21-\x7e]*$/).optional()
-}).strict();
+}).strict().superRefine((v,c)=>{if(v.provider==='nitrado'){if(new URL(v.origin).origin!=='https://api.nitrado.net')c.addIssue({code:'custom',message:'Use https://api.nitrado.net for Nitrado.'});if(!/^[1-9]\d{0,13}$/.test(v.remote_id))c.addIssue({code:'custom',message:'Use a numeric Nitrado service ID.'});}else if(!/^[a-zA-Z0-9-]{8,64}$/.test(v.remote_id))c.addIssue({code:'custom',message:'Use the panel server identifier or UUID.'});});
 export function createOperations(db, vault, service, hosting = createHostingAdapter(), cache = createMetricsCache({
   url: null
 })) {
@@ -69,7 +70,7 @@ export function createOperations(db, vault, service, hosting = createHostingAdap
   return {
     async withConfigHost(workspace,id,callback,exceptConfig=null){
       if(hostBusy.has(id))throw Object.assign(new Error('A hosting request is already running for this server.'),{status:409});hostBusy.add(id);
-      try{await assertWorkflowIdle(db,id,null,exceptConfig);const connection=await hostConnection(workspace,id);if(!hosting.readFile||!hosting.writeFile)throw Object.assign(new Error('This hosting adapter does not support configuration files.'),{status:400});return await callback({target:connection.origin+'\0'+connection.remote_id,resources:()=>hosting.resources(connection),read:path=>hosting.readFile(connection,path),write:(path,body)=>hosting.writeFile(connection,path,body)});}finally{hostBusy.delete(id);}
+      try{await assertWorkflowIdle(db,id,null,exceptConfig);const connection=await hostConnection(workspace,id);assertHostingCapability(connection.provider,'files');if(!hosting.readFile||!hosting.writeFile)throw Object.assign(new Error('This hosting adapter does not support configuration files.'),{status:400});return await callback({target:connection.origin+'\0'+connection.remote_id,resources:()=>hosting.resources(connection),read:path=>hosting.readFile(connection,path),write:(path,body)=>hosting.writeFile(connection,path,body)});}finally{hostBusy.delete(id);}
     },
     async listTemplates(workspace) {
       return await db.prepare('SELECT id,name,body,created_at,updated_at FROM announcement_templates WHERE workspace_id=? ORDER BY created_at,id').all(workspace);
@@ -263,13 +264,13 @@ export function createOperations(db, vault, service, hosting = createHostingAdap
       }
     },
     async hostingLinks(workspace) {
-      return await db.prepare('SELECT server_id,provider,origin,remote_id,verified_at FROM hosting_connections WHERE workspace_id=?').all(workspace);
+      return (await db.prepare('SELECT server_id,provider,origin,remote_id,verified_at FROM hosting_connections WHERE workspace_id=?').all(workspace)).map(row=>({...row,capabilities:hostingCapabilities(row.provider)}));
     },
     async connectHosting(workspace, id, input) {
       await service.getServer(workspace, id);
-      const value = hostingSchema.parse(input);
+      const parsed=hostingSchema.parse(input),value={...parsed,origin:new URL(parsed.origin).origin};
       const previous = await db.prepare('SELECT * FROM hosting_connections WHERE server_id=? AND workspace_id=?').get(id, workspace);
-      if (!value.api_key && (!previous || new URL(previous.origin).origin !== new URL(value.origin).origin)) throw Object.assign(new Error('Enter an API key when connecting a new panel origin.'), {
+      if (!value.api_key && (!previous || previous.provider!==value.provider || new URL(previous.origin).origin !== new URL(value.origin).origin)) throw Object.assign(new Error('Enter an API key when connecting a new panel origin.'), {
         status: 400
       });
       const key = value.api_key || vault.decrypt(previous.api_key);
@@ -278,8 +279,8 @@ export function createOperations(db, vault, service, hosting = createHostingAdap
         key
       });
       await db.withWorkspaceLock(workspace,async()=>{await service.getServer(workspace,id);await assertWorkflowIdle(db,id);
-      await db.prepare('INSERT INTO hosting_connections VALUES(?,?,?,?,?,?,?) ON CONFLICT(server_id) DO UPDATE SET origin=excluded.origin,remote_id=excluded.remote_id,api_key=excluded.api_key,verified_at=excluded.verified_at').run(id, workspace, value.provider, new URL(value.origin).origin, value.remote_id, vault.encrypt(key), Date.now());
-      await audit(db, workspace, 'Hosting panel connected', 'Pterodactyl connection verified.', 'success', id);});
+      await db.prepare('INSERT INTO hosting_connections VALUES(?,?,?,?,?,?,?) ON CONFLICT(server_id) DO UPDATE SET provider=excluded.provider,origin=excluded.origin,remote_id=excluded.remote_id,api_key=excluded.api_key,verified_at=excluded.verified_at').run(id, workspace, value.provider, new URL(value.origin).origin, value.remote_id, vault.encrypt(key), Date.now());
+      await audit(db, workspace, 'Hosting panel connected', hostingCapabilities(value.provider).name+' connection verified.', 'success', id);});
       return (await this.hostingLinks(workspace)).find(link => link.server_id === id);
     },
     async disconnectHosting(workspace, id) {
@@ -288,16 +289,17 @@ export function createOperations(db, vault, service, hosting = createHostingAdap
     },
     async hostingStatus(workspace, id) {
       const connection = await hostConnection(workspace, id);
-      const [resources, backups] = await Promise.all([hosting.resources(connection), hosting.backups(connection)]);
+      const [resources, backups] = await Promise.all([hosting.resources(connection), hostingCapabilities(connection.provider).backups?hosting.backups(connection):[]]);
       return {
         connected: true,
         provider: connection.provider,
+        capabilities:hostingCapabilities(connection.provider),
         resources,
         backups
       };
     },
     async hostingResources(workspace,id){return hosting.resources(await hostConnection(workspace,id));},
-    async hostingBackupStatus(workspace,id,backupId){const connection=await hostConnection(workspace,id);return hosting.backup?hosting.backup(connection,backupId):(await hosting.backups(connection)).find(item=>item.id===backupId)||{status:'unknown'};},
+    async hostingBackupStatus(workspace,id,backupId){const connection=await hostConnection(workspace,id);assertHostingCapability(connection.provider,'backups');return hosting.backup?hosting.backup(connection,backupId):(await hosting.backups(connection)).find(item=>item.id===backupId)||{status:'unknown'};},
     async hostingAction(workspace, id, input,internal={}) {
       const server = await service.getServer(workspace, id);
       const value = z.object({
@@ -314,6 +316,7 @@ export function createOperations(db, vault, service, hosting = createHostingAdap
       hostBusy.add(id);
       try {
         const connection = await hostConnection(workspace, id);
+        assertHostingCapability(connection.provider,value.action==='backup'?'backups':value.action);
         const result = await hosting.action(connection, value.action, `Rookrift ${new Date().toISOString()}`);
         await audit(db, workspace, 'Hosting request accepted', `${server.name} · ${value.action}`, 'info', id);
         if (value.action !== 'backup') await db.prepare("UPDATE servers SET status='unknown',players=0,player_list='[]',latency=NULL,last_checked=NULL WHERE id=?").run(id);
