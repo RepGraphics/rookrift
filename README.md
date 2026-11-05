@@ -19,10 +19,13 @@ npm ci
 npm run dev
 ```
 
-Open the printed address, normally http://127.0.0.1:5173. Demo changes persist in your browser. Try adding a sample server, saving a world, creating an automation, or previewing a different plan. Demo passwords are discarded. The sign-out icon in the sidebar resets the sample workspace after confirmation.
+Open the printed address, normally http://127.0.0.1:5173, for the public landing page, then choose **Explore the demo** for the sample dashboard. Demo changes persist in your browser. Try adding a sample server, saving a world, creating an automation, or previewing a different plan. Demo passwords are discarded. The sign-out icon in the sidebar resets the sample workspace after confirmation.
+
+The homepage is `/`, sign-in is `/login`, registration is `/register`, and the authenticated workspace is `/dashboard`. Public community pages remain at `/c/your-community` and platform administration remains at `/admin`. Pricing selections continue through registration to the dashboard's billing view; selecting a plan does not automatically charge it. The hosted preview clearly labels its disabled account forms and provides a demo dashboard link.
 
 ## Included
 
+- Public marketing homepage with product illustrations, keyboard-accessible feature tabs, current plan pricing, FAQs, mobile navigation and dedicated account entry routes. Dashboard code loads separately from the public page.
 - Responsive React dashboard with readable server cards, player history, RCON availability, activity filters, server search, and settings. Neutral light mode and a muted dark mode share a persistent appearance toggle in the header.
 - Separate per-server ASA/ASE selection; a workspace can manage both games using shared slots.
 - Server groups, fleet filters/sorting, and connection editing with optional encrypted password replacement.

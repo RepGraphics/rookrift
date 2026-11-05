@@ -1,3 +1,4 @@
+import {accountReturn} from '../shared/navigation.js';
 import { createMetricsCache } from './cache.js';
 import { createCommunity } from './community.js';
 import {createCommunityDesign} from './community-design.js';
@@ -147,7 +148,7 @@ export function createApp({
       ...cookieOptions,
       maxAge: 600000
     });
-    if(typeof req.query.return_to==='string'&&/^\/c\/[a-z0-9-]{3,48}$/.test(req.query.return_to))res.cookie('rookrift_return',req.query.return_to,{...cookieOptions,maxAge:600000});
+    if(accountReturn(req.query.return_to))res.cookie('rookrift_return',req.query.return_to,{...cookieOptions,maxAge:600000});
     else res.clearCookie('rookrift_return',cookieOptions);
     const params = new URLSearchParams({
       client_id: env.DISCORD_CLIENT_ID,
@@ -185,8 +186,8 @@ export function createApp({
     const token = await response.json(),
       user = await discordFetch('/users/@me', token.access_token);
     await db.prepare('INSERT INTO users VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,avatar=excluded.avatar,access_token=excluded.access_token').run(user.id, user.global_name || user.username, user.avatar || null, vault.encrypt(token.access_token));
-    const returnPath=typeof req.cookies.rookrift_return==='string'&&/^\/c\/[a-z0-9-]{3,48}$/.test(req.cookies.rookrift_return)?req.cookies.rookrift_return:'';
-    if(!returnPath)await db.prepare('INSERT INTO workspaces(id,owner_id,created_at) VALUES(?,?,?) ON CONFLICT DO NOTHING').run(randomUUID(), user.id, Date.now());
+    const returnPath=accountReturn(req.cookies.rookrift_return)||'/dashboard';
+    if(!returnPath.startsWith('/c/'))await db.prepare('INSERT INTO workspaces(id,owner_id,created_at) VALUES(?,?,?) ON CONFLICT DO NOTHING').run(randomUUID(), user.id, Date.now());
     const session = randomBytes(32).toString('hex'),
       csrf = randomBytes(24).toString('hex');
     await db.prepare('INSERT INTO sessions VALUES(?,?,?,?)').run(hash(session), user.id, csrf, Date.now() + 7 * 86400000);

@@ -18,3 +18,9 @@ for (const [name,palette] of Object.entries({ light, dark })) {
   });
   console.log(`${name}: ${results.length} text pairs pass 4.5:1; lowest ${Math.min(...results).toFixed(2)}:1.`);
 }
+const landingSource=await readFile('src/landing-page.css','utf8');
+const landing=tokens(landingSource.match(/\.landing-page\s*\{([^}]+)\}/)[1]);
+const landingPairs=[['lp-ink','lp-bg'],['lp-ink','lp-paper'],['lp-muted','lp-bg'],['lp-muted','lp-paper'],['lp-muted','lp-soft'],['lp-green','lp-bg'],['lp-green','lp-soft']];
+const landingResults=landingPairs.map(([foreground,background])=>{const value=ratio(landing[foreground],landing[background]);assert.ok(value>=4.5,`landing: ${foreground} on ${background} is ${value.toFixed(2)}:1`);return value;});
+const landingButton=ratio('#ffffff',landing['lp-green']);assert.ok(landingButton>=4.5,'landing: button text must pass 4.5:1');
+console.log(`landing: ${landingPairs.length+1} text/button pairs pass 4.5:1; lowest ${Math.min(...landingResults,landingButton).toFixed(2)}:1.`);

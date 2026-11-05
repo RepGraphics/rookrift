@@ -20,6 +20,12 @@
 
 The rook/rift mark is combined with the lowercase wordmark in the interface. Preserve its transparent background and generous margin. The supplied favicon derivatives come from the generated mark, not from a substitute icon.
 
+## Public homepage
+
+The public landing page uses a quiet, light palette: warm background `#F5F6F2`, white surfaces, deep green text `#202E2B`, secondary text `#5C6863` and forest-green actions `#315E4B`. It is scoped independently from the dashboard's remembered appearance. Large Manrope headings and generous spacing lead into an explicitly illustrative dashboard, feature tour, setup guide, shared-plan pricing and FAQs. Product previews show example data; they do not claim customer activity or service uptime. The existing island artwork appears within product illustrations, rather than behind the page's reading surface.
+
+The header and closing action lead to dedicated sign-in/registration pages, with a route back to the homepage. The preview offers a demo dashboard without collecting credentials. Pricing uses the same plan definitions as the app. Avoid fabricated testimonials, unverified savings claims and promises of unsupported game/provider actions.
+
 ## Generation record
 
 Both masters used the **built-in image generation tool**, not the API/CLI fallback. Derivatives were resized and converted with Sharp. Exact generation prompts are in `branding/prompts.json`.

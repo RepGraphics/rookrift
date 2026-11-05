@@ -111,7 +111,7 @@ export function createTeam(db) {
         await staffAudit(db, workspaceId, user, 'Created team invitation', id);
         return {
           id,
-          url: `${origin}/#invite=${token}`,
+          url: `${origin}/dashboard#invite=${token}`,
           expires_at: now + 7 * 86400000
         };
       });

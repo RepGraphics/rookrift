@@ -92,6 +92,7 @@
 }
 
 * { box-sizing: border-box; }
+.auth-home-link{position:absolute;top:27px;left:30px;display:inline-flex;gap:9px;align-items:center;font-size:12px;color:var(--text);z-index:2}.auth-home-link svg{transform:rotate(180deg)}.auth-home-link:hover{text-decoration:underline;text-underline-offset:4px}.auth-fields{border:0;padding:0;margin:0;min-width:0}.auth-fields:disabled{opacity:.65}.auth-fields>.button{width:100%}.auth-demo-note{border-top:1px solid var(--line);margin-top:20px;padding-top:18px;font-size:12px;color:var(--muted);line-height:1.8}.auth-demo-note>.button{margin-top:12px;width:100%;font-size:12px}.auth-checking{padding-block:28px;color:var(--muted);font-size:13px}.route-missing{min-height:100vh;display:flex;flex-direction:column;gap:22px;justify-content:center;align-items:center;padding:40px 24px;text-align:center}.route-missing h1{font-size:clamp(28px,4vw,40px)}.route-missing p{color:var(--muted)}
 body { margin: 0; line-height: 1.5; }
 button, input, select, textarea { font: inherit; }
 button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
@@ -486,7 +487,7 @@ main { max-width: 1640px; margin: auto; padding: 34px 36px 0; }
 .login-card h1 em { color: var(--accent); font-style: normal; }
 .login-intro > p { max-width: 390px; margin: 0 0 28px; color: var(--muted); font-size: 15px; line-height: 1.7; }
 .login-card > small { display: block; margin-top: 30px; color: var(--muted); font-size: 12px; }
-.login-theme { position: absolute; top: 25px; left: 25px; }
+.login-theme { position: absolute; top: 25px; right: 25px; }
 .auth-card { width: 100%; max-width: 440px; padding: 26px; border: 1px solid var(--line); border-radius: 14px; background: color-mix(in srgb, var(--panel) 94%, transparent); box-shadow: var(--modal-shadow); }
 .auth-heading { margin-bottom: 22px; }
 .auth-heading h2 { margin-bottom: 5px; font-size: 22px; }
@@ -1166,3 +1167,5 @@ main.staff-main { max-width: 1340px; margin: 0 auto; padding: 35px 30px; }
   main.staff-main { padding: 25px 18px; }
   .staff-tabs { max-width: 100%; overflow-x: auto; }
 }
+
+.login-page{padding-top:clamp(84px,8vw,110px)}

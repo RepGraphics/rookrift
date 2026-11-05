@@ -7,6 +7,11 @@ import { createVault, hash } from '../server/crypto.js';
 import { createService } from '../server/service.js';
 import { createApp } from '../server/app.js';
 import { createOperations } from '../server/operations.js';
+test('Discord sign-in keeps approved dashboard/community destinations and clears external return URLs',async t=>{
+ const f=await setup(t,{env:{DISCORD_CLIENT_ID:'123456789012345678',DISCORD_CLIENT_SECRET:'fixture-only',DISCORD_REDIRECT_URI:'http://localhost:3000/auth/discord/callback'}});
+ for(const destination of ['/dashboard?plan=tribe','/c/the-outpost?page=staff']){const r=await fetch(f.url+'/auth/discord?return_to='+encodeURIComponent(destination),{redirect:'manual'});assert.equal(r.status,302);assert.equal(new URL(r.headers.get('location')).hostname,'discord.com');const cookie=r.headers.getSetCookie().find(value=>value.startsWith('rookrift_return='));assert.equal(decodeURIComponent(cookie.split(';')[0].slice('rookrift_return='.length)),destination);}
+ for(const destination of ['https://evil.example','//evil.example','/dashboard?plan=unknown']){const r=await fetch(f.url+'/auth/discord?return_to='+encodeURIComponent(destination),{redirect:'manual'});assert.equal(r.status,302);assert.match(r.headers.getSetCookie().find(value=>value.startsWith('rookrift_return=')),/^rookrift_return=;/);}
+});
 async function setup(t, options = {}) {
   const db = await openDatabase(':memory:'),
     vault = createVault(randomBytes(32).toString('hex'));
@@ -33,7 +38,8 @@ async function setup(t, options = {}) {
       }
     },
     env: {
-      APP_URL: 'http://localhost:3000'
+      APP_URL: 'http://localhost:3000',
+      ...options.env
     }
   });
   const server = app.listen(0, '127.0.0.1');

@@ -98,8 +98,8 @@ export function createBilling(db, env = process.env, injectedStripe) {
             }
           },
           allow_promotion_codes: true,
-          success_url: `${env.APP_URL}/?billing=success`,
-          cancel_url: `${env.APP_URL}/?billing=canceled`
+          success_url: `${env.APP_URL}/dashboard?billing=success`,
+          cancel_url: `${env.APP_URL}/dashboard?billing=canceled`
         });
         return session.url;
       } finally {
@@ -113,7 +113,7 @@ export function createBilling(db, env = process.env, injectedStripe) {
       });
       return (await stripe.billingPortal.sessions.create({
         customer: workspace.customer_id,
-        return_url: env.APP_URL
+        return_url: env.APP_URL+'/dashboard'
       })).url;
     },
     async webhook(body, signature) {
