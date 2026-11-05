@@ -1,122 +1,69 @@
-import { randomBytes, randomUUID } from 'node:crypto';
-import { z } from 'zod';
-import { deliveryIdentifier } from '../shared/store-delivery.js';
-import { hash } from './crypto.js';
+import {randomBytes,randomUUID} from 'node:crypto';
+import {z} from 'zod';
+import {deliveryIdentifier} from '../shared/store-delivery.js';
+import {chatLinkRecord,chatLinkPlayer} from '../shared/ark-chat-link.js';
+import {hash} from './crypto.js';
+import {effectivePlan} from './plans.js';
 
-const fail = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
-const accountInput = z.object({
-  game: z.enum(['asa', 'ase', 'dayz']),
-  identifier: z.string().trim().min(3).max(100),
-  label: z.string().trim().max(80).default('')
-}).strict();
-const linkGame = z.enum(['asa', 'ase', 'dayz']);
-const linkEvent = z.object({
-  server_id: z.string().uuid(),
-  message: z.string().trim().min(1).max(1000)
-}).strict();
-const ansi = message => message.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '');
-const codeFromMessage = message => ansi(message).match(/(?:^|\s)\/link\s+([A-Z0-9-]{6,32})(?:\s|$)/im)?.[1]?.toUpperCase() || null;
-const playerNameFromMessage = message => {
-  const normalized = ansi(message).replace(/\r/g, '');
-  const chat = normalized.match(/(?:\[(?:chat|global|local|serverchat)\])\s*(?:\[[^\]]+\]\s*)*([^:\]\r\n]{1,100}):\s*\/link\b/im)?.[1]
-    || normalized.match(/\]\s*([^:\]\r\n]{1,100}):\s*\/link\b/im)?.[1]
-    || normalized.match(/(?:Player|Name)\s*[=:]\s*([^,\]\r\n]{1,100})(?:,[^:\r\n]*)?:\s*\/link\b/im)?.[1]
-    || normalized.match(/(?:^|\n)\s*([^:\r\n]{1,100}):\s*\/link\b/im)?.[1];
-  return chat?.trim() || null;
-};
+const fail=(message,status=400)=>{throw Object.assign(new Error(message),{status});};
+const accountInput=z.object({game:z.enum(['asa','ase','dayz']),identifier:z.string().trim().min(3).max(100),label:z.string().trim().max(80).default('')}).strict();
+const linkEvent=z.union([z.object({server_id:z.string().uuid(),message:z.string().min(1).max(4096)}).strict(),z.object({server_id:z.string().uuid(),code:z.string().regex(/^RR-[A-F0-9]{10,32}$/i),identifier:z.string().min(3).max(100)}).strict()]);
 
-export function createCommunityMembers(db, { service } = {}) {
-  const community = async slug => {
-    const row = await db.prepare('SELECT workspace_id FROM community_sites WHERE slug=? AND enabled=1').get(slug);
-    if (!row) fail('Community page not found.', 404);
-    return row.workspace_id;
-  };
-  const ensure = async (workspace, user) => {
-    await db.prepare('INSERT INTO community_members(workspace_id,user_id,created_at,updated_at) VALUES(?,?,?,?) ON CONFLICT DO NOTHING').run(workspace, user.id, Date.now(), Date.now());
-  };
-  const list = async (workspace, user) => {
-    await ensure(workspace, user);
-    return {
-      display_name: (await db.prepare('SELECT display_name FROM community_members WHERE workspace_id=? AND user_id=?').get(workspace, user.id)).display_name,
-      accounts: await db.prepare('SELECT id,game,identifier,label,verified,created_at FROM community_game_accounts WHERE workspace_id=? AND user_id=? ORDER BY created_at,id').all(workspace, user.id)
-    };
-  };
-  const linkFromMessage = async (server, message) => {
-    const code = codeFromMessage(message), playerName = playerNameFromMessage(message);
-    if (!code || !playerName) return { linked: false, ignored: true };
-    const pending = await db.prepare('SELECT * FROM community_link_codes WHERE code_hash=? AND workspace_id=? AND game=? AND used_at IS NULL AND expires_at>?').get(hash(`RR-${code.replace(/^RR-/i, '')}`), server.workspace_id, server.game, Date.now());
-    if (!pending) return { linked: false, ignored: true };
-    if (!service?.action) fail('Server link verification is unavailable.', 503);
-    await service.action(server.workspace_id, server.id, 'status', '', 'Chat account linking');
-    const latest = await service.getServer(server.workspace_id, server.id, false);
-    let players;
-    try { players = JSON.parse(latest.player_list || '[]'); } catch { players = []; }
-    const match = players.map(line => {
-      const parts = String(line).split(',');
-      return { name: parts.slice(0, -1).join(',').trim(), identifier: parts.at(-1)?.trim() };
-    }).find(player => player.name.toLowerCase() === playerName.toLowerCase());
-    if (!match?.identifier) return { linked: false, ignored: true };
-    const identifier = deliveryIdentifier(match.identifier, 'game');
-    await db.transaction(async () => {
-      await db.prepare('INSERT INTO community_members(workspace_id,user_id,created_at,updated_at) VALUES(?,?,?,?) ON CONFLICT DO NOTHING').run(server.workspace_id, pending.user_id, Date.now(), Date.now());
-      await db.prepare('INSERT INTO community_game_accounts(id,workspace_id,user_id,game,identifier,label,verified,created_at) VALUES(?,?,?,?,?,?,1,?) ON CONFLICT(workspace_id,user_id,game,identifier) DO UPDATE SET verified=1').run(randomUUID(), server.workspace_id, pending.user_id, server.game, identifier, 'Linked from server chat', Date.now());
-      await db.prepare('UPDATE community_link_codes SET used_at=? WHERE code_hash=? AND used_at IS NULL').run(Date.now(), pending.code_hash);
+export function createCommunityMembers(db,{service}={}){
+  const community=async slug=>{const row=await db.prepare('SELECT * FROM community_sites WHERE slug=? AND enabled=1').get(slug);if(!row)fail('Community page not found.',404);return row;};
+  const ensure=async(ws,user)=>db.prepare('INSERT INTO community_members(workspace_id,user_id,created_at,updated_at) VALUES(?,?,?,?) ON CONFLICT DO NOTHING').run(ws,user.id,Date.now(),Date.now());
+  async function choices(site){
+    const ws=await db.prepare('SELECT * FROM workspaces WHERE id=?').get(site.workspace_id),published=JSON.parse(site.server_ids||'[]');
+    return(await db.prepare('SELECT id,name,game FROM servers WHERE workspace_id=? ORDER BY created_at,id').all(ws.id)).slice(0,effectivePlan(ws).servers).filter(s=>published.includes(s.id)&&['asa','ase'].includes(s.game));
+  }
+  async function list(site,user){
+    await ensure(site.workspace_id,user);
+    return{display_name:(await db.prepare('SELECT display_name FROM community_members WHERE workspace_id=? AND user_id=?').get(site.workspace_id,user.id)).display_name,
+      accounts:await db.prepare('SELECT id,game,identifier,label,verified,verified_at,verified_server_id,created_at FROM community_game_accounts WHERE workspace_id=? AND user_id=? ORDER BY created_at,id').all(site.workspace_id,user.id),
+      link_servers:await choices(site),link_request:await db.prepare('SELECT game,server_id,expires_at,used_at,created_at FROM community_link_codes WHERE workspace_id=? AND user_id=? ORDER BY created_at DESC LIMIT 1').get(site.workspace_id,user.id)||null};
+  }
+  async function linkFromMessage(server,message){
+    const record=chatLinkRecord(message);if(!record)return{linked:false,ignored:true};
+    const codeHash=hash(record.code);
+    const pending=await db.prepare('SELECT user_id FROM community_link_codes WHERE code_hash=? AND workspace_id=? AND server_id=? AND game=? AND used_at IS NULL AND expires_at>?').get(codeHash,server.workspace_id,server.id,server.game,Date.now());
+    if(!pending)return{linked:false,ignored:true};
+    if(!service?.action)fail('Server link verification is unavailable.',503);
+    await service.action(server.workspace_id,server.id,'status','','Account link verification');
+    const latest=await service.getServer(server.workspace_id,server.id);
+    let players=[];try{players=JSON.parse(latest.player_list||'[]');}catch{}
+    const player=chatLinkPlayer(record,players);if(!player)return{linked:false,ignored:true,reason:'sender_unmatched'};
+    const identifier=deliveryIdentifier(player.identifier,'game');
+    return claimLink(server,codeHash,identifier);
+  }
+  async function claimLink(server,codeHash,identifier){const now=Date.now();
+    return db.withWorkspaceLock(server.workspace_id,async()=>{
+      const current=await db.prepare('SELECT * FROM community_link_codes WHERE code_hash=? FOR UPDATE').get(codeHash);
+      if(!current||current.used_at||current.expires_at<=Date.now()||current.server_id!==server.id||current.game!==server.game)return{linked:false,ignored:true};if(!await db.prepare('SELECT 1 FROM community_sites WHERE workspace_id=? AND enabled=1').get(server.workspace_id)||await db.prepare('SELECT 1 FROM suspended_users WHERE user_id=?').get(current.user_id))return{linked:false,ignored:true};
+      if(await db.prepare('SELECT id FROM community_game_accounts WHERE workspace_id=? AND game=? AND lower(identifier)=lower(?) AND verified=1 AND user_id<>?').get(server.workspace_id,server.game,identifier,current.user_id))fail('This game account is already verified for another member. Contact community staff.',409);
+      const existing=await db.prepare('SELECT id FROM community_game_accounts WHERE workspace_id=? AND user_id=? AND game=? AND identifier=?').get(server.workspace_id,current.user_id,server.game,identifier);
+      if(!existing&&(await db.prepare('SELECT count(*) AS n FROM community_game_accounts WHERE workspace_id=? AND user_id=?').get(server.workspace_id,current.user_id)).n>=20)fail('Remove an unused linked game account first.',409);
+      await ensure(server.workspace_id,{id:current.user_id});
+      await db.prepare('INSERT INTO community_game_accounts(id,workspace_id,user_id,game,identifier,label,verified,created_at,verified_server_id,verified_at) VALUES(?,?,?,?,?,?,1,?,?,?) ON CONFLICT(workspace_id,user_id,game,identifier) DO UPDATE SET verified=1,verified_server_id=excluded.verified_server_id,verified_at=excluded.verified_at').run(existing?.id||randomUUID(),server.workspace_id,current.user_id,server.game,identifier,'Verified in game',now,server.id,now);
+      await db.prepare('UPDATE community_link_codes SET used_at=? WHERE code_hash=?').run(now,codeHash);
+      return{linked:true,game:server.game,identifier};
     });
-    let notified = true;
-    try {
-      await service.directMessage(server.workspace_id, server.id, playerName, 'Your Rookrift game account has been linked successfully.');
-    } catch (error) {
-      notified = false;
-      console.error(`Account-link confirmation failed for ${server.id}: ${error.message}`);
-    }
-    return { linked: true, game: server.game, identifier, notified };
-  };
-  return {
-    async view(slug, user) {
-      if (!user) fail('Sign in to manage your community member account.', 401);
-      return list(await community(slug), user);
+  }
+  return{
+    async view(slug,user){if(!user)fail('Sign in to manage linked game accounts.',401);return list(await community(slug),user);},
+    async add(slug,user,input){
+      if(!user)fail('Sign in to link a game account.',401);const value=accountInput.parse(input),site=await community(slug),identifier=deliveryIdentifier(value.identifier,'game');
+      return db.withWorkspaceLock(site.workspace_id,async()=>{await ensure(site.workspace_id,user);if((await db.prepare('SELECT count(*) AS n FROM community_game_accounts WHERE workspace_id=? AND user_id=?').get(site.workspace_id,user.id)).n>=20)fail('You can save up to 20 game accounts.',409);try{await db.prepare('INSERT INTO community_game_accounts(id,workspace_id,user_id,game,identifier,label,created_at) VALUES(?,?,?,?,?,?,?)').run(randomUUID(),site.workspace_id,user.id,value.game,identifier,value.label,Date.now());}catch(e){if(e.code==='23505')fail('That game account is already saved.',409);throw e;}return list(site,user);});
     },
-    async add(slug, user, input) {
-      if (!user) fail('Sign in to link a game account.', 401);
-      const value = accountInput.parse(input), workspace = await community(slug);
-      try {
-        const identifier = deliveryIdentifier(value.identifier, 'game');
-        await ensure(workspace, user);
-        await db.prepare('INSERT INTO community_game_accounts(id,workspace_id,user_id,game,identifier,label,created_at) VALUES(?,?,?,?,?,?,?)').run(randomUUID(), workspace, user.id, value.game, identifier, value.label, Date.now());
-      } catch (error) {
-        if (error.code === '23505') fail('That game account is already linked to this community.', 409);
-        throw error;
-      }
-      return list(workspace, user);
+    async createLinkCode(slug,user,game,serverId){
+      if(!user)fail('Sign in to link a game account.',401);z.enum(['asa','ase']).parse(game);const site=await community(slug),available=(await choices(site)).filter(s=>s.game===game);
+      const server=serverId?available.find(s=>s.id===serverId):available.length===1?available[0]:null;if(!server)fail('Choose a published server for this game.');
+      const code='RR-'+randomBytes(8).toString('hex').toUpperCase(),now=Date.now(),expires=now+600000;
+      await db.withWorkspaceLock(site.workspace_id,async()=>{await db.prepare('DELETE FROM community_link_codes WHERE user_id=? AND workspace_id=?').run(user.id,site.workspace_id);await db.prepare('INSERT INTO community_link_codes(code_hash,workspace_id,user_id,game,expires_at,created_at,server_id) VALUES(?,?,?,?,?,?,?)').run(hash(code),site.workspace_id,user.id,game,expires,now,server.id);});
+      return{code,game,server_id:server.id,server_name:server.name,expires_at:expires,created_at:now,command:'/link '+code};
     },
-    async createLinkCode(slug, user, game) {
-      if (!user) fail('Sign in to link a game account.', 401);
-      const value = linkGame.parse(game), workspace = await community(slug);
-      const code = `RR-${randomBytes(5).toString('hex').toUpperCase()}`, expires = Date.now() + 10 * 60 * 1000;
-      await db.prepare('DELETE FROM community_link_codes WHERE user_id=? AND workspace_id=? AND (used_at IS NOT NULL OR expires_at<?)').run(user.id, workspace, Date.now());
-      await db.prepare('INSERT INTO community_link_codes(code_hash,workspace_id,user_id,game,expires_at,created_at) VALUES(?,?,?,?,?,?)').run(hash(code), workspace, user.id, value, expires, Date.now());
-      return { code, game: value, expires_at: expires, command: `/link ${code}` };
-    },
-    async ingestServerChat(serverId, message) {
-      const server = await db.prepare('SELECT id,workspace_id,game FROM servers WHERE id=?').get(serverId);
-      if (!server) fail('Server not found.', 404);
-      return linkFromMessage(server, message);
-    },
-    async ingestChatEvent(token, input) {
-      const value = linkEvent.parse(input), server = await db.prepare('SELECT id,workspace_id,game FROM servers WHERE id=? AND link_ingest_token_hash=?').get(value.server_id, hash(token || ''));
-      if (!server) fail('Invalid server link-agent credentials.', 401);
-      return linkFromMessage(server, value.message);
-    },
-    async remove(slug, user, id) {
-      if (!user) fail('Sign in to manage linked game accounts.', 401);
-      const workspace = await community(slug);
-      const result = await db.prepare('DELETE FROM community_game_accounts WHERE id=? AND workspace_id=? AND user_id=?').run(id, workspace, user.id);
-      if (!result.changes) fail('Linked game account not found.', 404);
-      return list(workspace, user);
-    },
-    async resolve(workspace, user, id) {
-      if (!id) return null;
-      return db.prepare('SELECT game,identifier FROM community_game_accounts WHERE id=? AND workspace_id=? AND user_id=?').get(id, workspace, user.id);
-    }
+    async ingestServerChat(serverId,message){const server=await db.prepare('SELECT id,workspace_id,game FROM servers WHERE id=?').get(serverId);if(!server)fail('Server not found.',404);return linkFromMessage(server,message);},
+    async ingestChatEvent(token,input){const value=linkEvent.parse(input),server=await db.prepare('SELECT id,workspace_id,game FROM servers WHERE id=? AND link_ingest_token_hash=?').get(value.server_id,hash(token||''));if(!server)fail('Invalid server link-agent credentials.',401);if('message' in value)return{accepted:true,linked:false,source:'native_rcon'};await service.action(server.workspace_id,server.id,'status','','Controller account link verification');const latest=await service.getServer(server.workspace_id,server.id);let players=[];try{players=JSON.parse(latest.player_list||'[]');}catch{}const identifier=deliveryIdentifier(value.identifier,'game');if(!players.some(line=>String(line).slice(String(line).lastIndexOf(',')+1).trim()===identifier))return{linked:false,ignored:true};return claimLink(server,hash(value.code.toUpperCase()),identifier);},
+    async remove(slug,user,id){if(!user)fail('Sign in to manage linked game accounts.',401);const site=await community(slug);if(!(await db.prepare('DELETE FROM community_game_accounts WHERE id=? AND workspace_id=? AND user_id=?').run(id,site.workspace_id,user.id)).changes)fail('Linked game account not found.',404);return list(site,user);},
+    async resolve(ws,user,id){if(!id)return null;return db.prepare('SELECT game,identifier FROM community_game_accounts WHERE id=? AND workspace_id=? AND user_id=?').get(id,ws,user.id);}
   };
 }

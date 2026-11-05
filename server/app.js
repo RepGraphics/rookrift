@@ -109,13 +109,14 @@ export function createApp({
     });
   });
   app.post('/api/webhooks/community-stripe',express.raw({type:'application/json',limit:'1mb'}),async(req,res)=>{await store.webhook(req.body,req.headers['stripe-signature']);res.json({received:true});});
+  app.use('/api/community/site',express.json({limit:'5mb'}));
   app.use(express.json({
     limit: '64kb'
   }), cookieParser());
   app.post('/api/link-events', rateLimit({ windowMs: 60000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false }), async (req, res) => {
     const authorization = req.get('Authorization') || '';
     const token = authorization.match(/^Bearer\s+(.+)$/i)?.[1];
-    res.json(await members.ingestChatEvent(token, req.body));
+    const outcome=await members.ingestChatEvent(token,req.body);if(outcome.accepted)void app.locals.linkMonitor?.tick().catch(()=>{});res.json(outcome);
   });
   app.get('/api/health', (_, res) => res.json({
     status: 'ok',
@@ -293,7 +294,7 @@ export function createApp({
   app.get('/api/public/communities/:slug/store',async(req,res)=>res.json(await store.publicPage(req.params.slug,req.visitor)));
   app.get('/api/public/communities/:slug/store/orders',async(req,res)=>res.json(await store.buyerOrders(req.params.slug,req.visitor)));
   app.get('/api/public/communities/:slug/member',async(req,res)=>res.json(await members.view(req.params.slug,req.visitor)));
-  app.post('/api/public/communities/:slug/member/link-code',communityWrites,async(req,res)=>res.json(await members.createLinkCode(req.params.slug,req.visitor,req.body?.game)));
+  app.post('/api/public/communities/:slug/member/link-code',communityWrites,async(req,res)=>res.json(await members.createLinkCode(req.params.slug,req.visitor,req.body?.game,req.body?.server_id)));
   app.post('/api/public/communities/:slug/member/game-accounts',communityWrites,async(req,res)=>res.json(await members.add(req.params.slug,req.visitor,req.body)));
   app.delete('/api/public/communities/:slug/member/game-accounts/:id',communityWrites,async(req,res)=>res.json(await members.remove(req.params.slug,req.visitor,req.params.id)));
   app.post('/api/public/communities/:slug/store/checkout',communityWrites,async(req,res)=>res.json(await store.checkout(req.params.slug,req.visitor,req.body)));
@@ -452,6 +453,7 @@ export function createApp({
     if (input.host !== undefined) await resolveTarget(input.host);
     res.json(await service.updateServer(req.workspace.id, req.params.id, input));
   });
+  app.get('/api/servers/:id/linking',async(req,res)=>{await service.getServer(req.workspace.id,req.params.id);const row=await db.prepare('SELECT link_ingest_token_hash FROM servers WHERE id=? AND workspace_id=?').get(req.params.id,req.workspace.id);res.json({...app.locals.linkMonitor?.status(req.params.id),agent_configured:Boolean(row.link_ingest_token_hash)});});
   app.post('/api/servers/:id/link-agent', async (req, res) => {
     const server = await service.getServer(req.workspace.id, req.params.id, false);
     const token = randomBytes(32).toString('base64url');

@@ -1,3 +1,4 @@
+import {communityTheme,COMMUNITY_PALETTES,colorContrast} from '../shared/community-theme.js';
 import { readFile } from 'node:fs/promises';
 import assert from 'node:assert/strict';
 const source = await readFile('src/styles.css', 'utf8');
@@ -26,3 +27,5 @@ for(const [name,palette]of Object.entries({'landing dark':landingDark,'landing l
  const results=landingPairs.map(([foreground,background])=>{const value=ratio(palette[foreground],palette[background]);assert.ok(value>=4.5,`${name}: ${foreground} on ${background} is ${value.toFixed(2)}:1`);return value;});
  console.log(`${name}: ${landingPairs.length} text/button pairs pass 4.5:1; lowest ${Math.min(...results).toFixed(2)}:1.`);
 }
+
+let communityChecks=0;for(const theme of Object.keys(COMMUNITY_PALETTES))for(const mode of ['light','dark'])for(const accent of ['', '#ffffff','#000000','#ffd166','#777777','#0600ff']){const p=communityTheme({theme,appearance:{mode,accent}});for(const fg of ['--heading','--text','--muted','--accent'])for(const bg of ['--panel','--bg']){assert.ok(colorContrast(p[fg],p[bg])>=4.5,theme+' '+mode+' '+fg+' on '+bg);communityChecks++;}for(const bg of ['--primary','--primary-hover']){assert.ok(colorContrast(p['--on-primary'],p[bg])>=4.5,theme+' button contrast');communityChecks++;}}console.log('Community themes: '+communityChecks+' text/button pairs pass 4.5:1.');

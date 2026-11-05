@@ -26,32 +26,30 @@ export async function securePanelRequest(origin, path, key, method = 'GET', body
   });
 }
 const attributes=value=>value?.attributes || value || {};
-function createPanelAdapter(request) {
+function createPanelAdapter(request,{WebSocketImpl=WebSocket,resolveSocket=resolveTarget}={}) {
   const base=connection=>`/api/client/servers/${encodeURIComponent(connection.remote_id)}`;
   const call=(connection,path,method,body,options)=>request(connection.origin,base(connection)+path,connection.key,method,body,options);
   return {
-    async openConsole(connection, onLine, onClose = () => {}) {
-      const data = await call(connection, '/websocket');
-      const session = attributes(data?.data || data);
-      const socketUrl = session.socket, token = session.token;
-      if (typeof socketUrl !== 'string' || typeof token !== 'string') throw Object.assign(new Error('The hosting panel did not return a console WebSocket session.'), { status: 502 });
-      const socket = new WebSocket(socketUrl, { origin: connection.origin });
-      let closed = false;
-      const close = () => { if (!closed) { closed = true; socket.close(); } };
-      socket.on('open', () => socket.send(JSON.stringify({ event: 'auth', args: [token] })));
-      socket.on('message', data => {
-        try {
-          const event = JSON.parse(String(data));
-          if (event.event === 'console output' && typeof event.args?.[0] === 'string') {
-            for (const line of event.args[0].split(/\r?\n/).map(value => value.trim()).filter(Boolean)) onLine(line);
-          }
-          if (event.event === 'token expiring') socket.send(JSON.stringify({ event: 'auth', args: [token] }));
-          if (event.event === 'token expired') close();
-        } catch { /* Ignore malformed provider events; the stream remains available. */ }
+    async openConsole(connection,onLine,onClose=()=>{}) {
+      async function session(){const data=await call(connection,'/websocket'),value=attributes(data?.data||data);if(typeof value.socket!=='string'||typeof value.token!=='string'||!value.token)throw Object.assign(new Error('The panel did not return a console session.'),{status:502});const url=new URL(value.socket);if(url.protocol!=='wss:'||url.username||url.password)throw Object.assign(new Error('The console must use a secure WebSocket URL.'),{status:502});const address=await resolveSocket(url.hostname,process.env.ALLOW_PRIVATE_HOSTING==='true');return{...value,url,address};}
+      const initial=await session();
+      return new Promise((resolve,reject)=>{
+        const socket=new WebSocketImpl(initial.url.href,{origin:connection.origin,maxPayload:1048576,handshakeTimeout:10000,lookup:(_,options,callback)=>options.all?callback(null,[{address:initial.address,family:isIP(initial.address)}]):callback(null,initial.address,isIP(initial.address))});
+        let closed=false,ready=false,refreshing=false;
+        const finish=()=>{if(closed)return;closed=true;clearTimeout(timeout);if(!ready)reject(Object.assign(new Error('Console authentication did not complete.'),{status:502}));onClose();};
+        const close=()=>{if(closed)return;socket.terminate();finish();};
+        let timeout=setTimeout(close,10000);
+        const send=(event,args=[])=>{if(!closed&&socket.readyState===1)socket.send(JSON.stringify({event,args}));};
+        const refresh=async()=>{if(refreshing||closed)return;refreshing=true;try{const next=await session();if(next.url.href!==initial.url.href){close();return;}clearTimeout(timeout);timeout=setTimeout(close,10000);send('auth',[next.token]);}catch{close();}finally{refreshing=false;}};
+        socket.on('open',()=>send('auth',[initial.token]));
+        socket.on('message',raw=>{let event;try{event=JSON.parse(String(raw));}catch{return;}
+          if(event.event==='auth success'){clearTimeout(timeout);if(!ready){ready=true;send('send logs');resolve(close);}}
+          else if(event.event==='console output'&&ready&&typeof event.args?.[0]==='string'){for(const line of event.args[0].split(/\r?\n/).filter(Boolean))onLine(line);}
+          else if(['token expiring','token expired'].includes(event.event))void refresh();
+          else if(['auth error','jwt error'].includes(event.event))close();
+        });
+        socket.on('error',close);socket.on('close',finish);
       });
-      socket.on('error', () => close());
-      socket.on('close', () => { closed = true; onClose(); });
-      return close;
     },
     readFile:(connection,path)=>call(connection,'/files/contents?file='+encodeURIComponent(path),'GET',undefined,{text:true}),
     writeFile:(connection,path,body)=>call(connection,'/files/write?file='+encodeURIComponent(path),'POST',body,{raw:true}),
@@ -90,8 +88,8 @@ export function createNitradoAdapter(request=securePanelRequest){
   async backups(){return[];}
  };
 }
-export function createHostingAdapter(request=securePanelRequest){
- const panel=createPanelAdapter(request),nitrado=createNitradoAdapter(request);
+export function createHostingAdapter(request=securePanelRequest,options={}){
+ const panel=createPanelAdapter(request,options),nitrado=createNitradoAdapter(request);
  const choose=c=>{if(!['pterodactyl','pelican','nitrado'].includes(c.provider||'pterodactyl'))throw Object.assign(new Error('Unsupported hosting provider.'),{status:400});return c.provider==='nitrado'?nitrado:panel;};
  return{
   capabilities:c=>hostingCapabilities(c.provider),
@@ -101,6 +99,6 @@ export function createHostingAdapter(request=securePanelRequest){
   backup:(c,id)=>{assertHostingCapability(c.provider,'backups');return choose(c).backup(c,id);},
   readFile:(c,path)=>{assertHostingCapability(c.provider,'files');return choose(c).readFile(c,path);},
   writeFile:(c,path,body)=>{assertHostingCapability(c.provider,'files');return choose(c).writeFile(c,path,body);}
-  ,openConsole:(c,onLine)=>{if(c.provider==='nitrado')throw Object.assign(new Error('Nitrado console log streaming is not available through this connector yet.'),{status:400});return choose(c).openConsole(c,onLine);}
+  ,openConsole:(c,onLine,onClose)=>{if(c.provider==='nitrado')throw Object.assign(new Error('Nitrado console log streaming is not available through this connector yet.'),{status:400});return choose(c).openConsole(c,onLine,onClose);}
  };
 }

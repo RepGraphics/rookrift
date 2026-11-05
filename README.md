@@ -6,7 +6,7 @@ This is a runnable MVP starter, with working backend integrations that require y
 
 Production storage uses **PostgreSQL 18**, with optional **Redis 8** chart caching. For your deployment, follow the [Dokploy setup and SQLite migration guide](docs/DOKPLOY.md). Existing SQLite data needs an explicit import with its original encryption key before starting the new backend.
 
-The product direction is an affordable ARK-first service covering daily player administration, automation, hosting, team access and community tools. Release **0.10** adds separate game-focused workspaces, product images/categories, wider sorting and durable purchase actions for server commands and Discord role rewards. It builds on the community site editor, independent join/staff applications, Stripe Connect storefront, Nitrado/Pelican connectors, local accounts/platform administration, workflows and versioned INI deployment. Read the [workspace guide](docs/WORKSPACES.md), [community guide](docs/COMMUNITY.md), [storefront setup](docs/STOREFRONT.md), [provider matrix](docs/HOSTING-PROVIDERS.md), and [remaining gaps](docs/PRODUCT-DIRECTION.md).
+The product direction is an affordable ARK-first service covering daily player administration, automation, hosting, team access and community tools. Release **0.11** adds community branding, six colour themes and custom accents, expanded page appearance controls, corrected navigation alignment and a complete in-game account-linking flow. Version 0.10 introduced separate game-focused workspaces, image/category catalogs and durable purchase commands/Discord rewards. It builds on the community site editor, independent join/staff applications, Stripe Connect storefront, Nitrado/Pelican connectors, local accounts/platform administration, workflows and versioned INI deployment. Read the [workspace guide](docs/WORKSPACES.md), [community guide](docs/COMMUNITY.md), [storefront setup](docs/STOREFRONT.md), [provider matrix](docs/HOSTING-PROVIDERS.md), and [remaining gaps](docs/PRODUCT-DIRECTION.md).
 
 ## Try the dashboard
 
@@ -205,23 +205,8 @@ Process controls use a supported host connector; backups and configuration depen
 Simple automations support intervals and timezone-aware weekly schedules; workflows add bounded multi-step sequences. They are claimed before running, run at most once per claim, and skip missed intervals after downtime. Monitoring is sequential per minute cycle, so large or unreachable fleets take longer. Events older than the plan retention period are pruned by the background process. Demo data is browser-local and persists until reset.
 
 See [OPERATIONS.md](docs/OPERATIONS.md) for v0.3 reliability, moderation, hosting setup and upgrade instructions; [FEATURES.md](docs/FEATURES.md) for fleet basics; [LAUNCH.md](docs/LAUNCH.md) for a route to a paid pilot; and [ARCHITECTURE.md](docs/ARCHITECTURE.md) for system details.
-## Server-chat account linking
+## In-game account linking
 
-Members can generate a short-lived link code from a community page and enter
-`/link RR-XXXXXXXXXX` in supported server chat. Rookrift accepts matching log
-lines through the optional `link-agent`, refreshes the server player list over
-RCON, and only links the identifier when the chat name matches a currently
-connected player.
+Members open **Game accounts** on a public community page, select their world and generate a ten-minute, server-bound code. Rookrift reads native ARK global chat through RCON independently of hosting consoles, verifies a unique sender against fresh player data, and consumes codes atomically. Trusted server extensions can submit controller-derived IDs; raw log text only prompts a native chat check. See [account linking and diagnostics](docs/ACCOUNT-LINKING.md).
 
-To configure a server, call `POST /api/servers/{server_id}/link-agent` while
-authenticated as a workspace owner or administrator. Keep the returned token
-secret. For Docker, set `LINK_LOG_HOST_PATH`, `LINK_LOG_PATH`,
-`ROOKRIFT_LINK_TOKEN`, and `ROOKRIFT_SERVER_ID` in `.env`, then run:
-
-```powershell
-docker compose --profile link-agent up -d --build link-agent
-```
-
-The agent is deliberately an opt-in log bridge because Rookrift cannot read
-logs on a separate game host without a mounted file or a server/plugin
-integration. DayZ remains unavailable until its server adapter supports RCON.
+Customise community branding under **Community page** and open **Site editor > Brand & appearance** for themes, accents, banner images, layout, fonts, navigation and footer controls. Publish the design to apply it publicly. See [community setup](docs/COMMUNITY.md).

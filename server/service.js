@@ -301,7 +301,7 @@ export function createService(db, vault, transport = runRcon) {
       }
     },
     async chat(workspaceId, serverId) {
-      const server = await getServer(workspaceId, serverId, false);
+      const server = await getServer(workspaceId, serverId);
       commandFor('chat', '', server.game);
       if (busy.has(serverId)) throw Object.assign(new Error('Another command is running on this server. Try again shortly.'), { status: 409, code: 'SERVER_BUSY' });
       busy.add(serverId);

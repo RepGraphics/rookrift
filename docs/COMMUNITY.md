@@ -48,13 +48,19 @@ Community tools are included in the existing plans. News/event record limits per
 
 PostgreSQL migration 2 applies automatically at startup and preserves existing schedules as interval tasks. Retain a database backup before upgrading. No new environment variables are required. Re-register Discord slash commands with `npm run bot:register`: `/rookrift community` returns the published hub link and `/rookrift applications` returns the pending count for the linked guild's authorised administrators. Bot replies remain private.
 
-Release 0.9 also ships a [community storefront](STOREFRONT.md) and [Nitrado/Pelican connectors](HOSTING-PROVIDERS.md). Automatic whitelist execution, automatic in-game item delivery, recurring supporter perks, forums, mod installation and host agents remain future work.
+Release 0.10 adds configured purchase commands/Discord rewards to the [community storefront](STOREFRONT.md). Release 0.11 adds [in-game account linking](ACCOUNT-LINKING.md), community branding and expanded appearance controls. Automatic whitelist execution, verified inventory delivery, recurring supporter perks, forums, mod installation and host agents remain future work.
 
 
-## Site editor (0.9)
+## Site editor and branding (0.11)
 
-Save your page details, then open **Community hub ? Site editor**. Choose Forest, Ocean, Slate or Ember; edit the hero introduction; add up to six pages and twelve sections per page. Text, HTTPS images, linked callouts, live selected-server cards, published news and upcoming events are available. Move pages/sections up or down and inspect the draft preview. Content is escaped plain text; arbitrary HTML and scripts are not accepted.
+Save your community name and logo under **Community page**. The public header and browser title use that identity; a missing logo gets a community monogram. Use a public HTTPS logo URL or upload a PNG, JPEG, WebP or GIF up to 3 MB. SVG uploads and credential-bearing image URLs are rejected. A configured logo is also used as the public-page favicon.
+
+Open **Community hub → Site editor → Brand & appearance**. Choose Forest, Ocean, Slate, Ember, Violet or Sand, or supply a custom accent. Set the default light/dark appearance and whether visitors can switch it. Button foreground and accent text contrast are adjusted automatically. Visitor preferences are stored separately per community in the browser.
+
+Configure a HTTPS banner image, readable overlay, hero alignment/spacing, stat visibility, page width, filled/outlined cards, corner style, heading font and footer text. Show/hide the built-in server, news, event and rules navigation sections. Store and application visibility continue to follow their own controls. These design changes remain drafts until published, and the preview uses the same theme/hero/branding components as the public page.
+
+Under **Pages & sections**, add up to six pages and twelve sections per page. Text, HTTPS images, linked callouts, live selected-server cards, published news and upcoming events are available. Move pages/sections up or down and inspect the draft preview. Content is escaped plain text; arbitrary HTML, CSS and scripts are not accepted.
 
 **Save draft** stores the design privately. **Publish design** saves and publishes the current draft; public visitors receive only the published design. **Restore published design** discards unsaved/draft layout edits in favour of the last published layout. Undo keeps up to 25 editor changes in memory. Page navigation uses `?page=your-page-address`; built-in server/news/event/rule/store/application addresses are reserved. News and event publications still follow their own settings.
 
-Migration 8 backfills the former application toggle/questions into both independent forms and adds the site design/store tables. Existing hubs continue to show their default layout until a custom design is published.
+Existing published designs retain their pages and content, with default appearance settings added when edited. Migration 8 added the original site design/store tables; migration 16 adds account-link provenance. Back up PostgreSQL before upgrading. The default hub remains live until a custom design is published.

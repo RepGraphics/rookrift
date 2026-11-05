@@ -23,7 +23,7 @@ let service,billing,store,flushAuditWrites;
 async function stop(code=0){
   if(stopping)return;stopping=true;clearInterval(interval);clearInterval(workflowTimer);clearInterval(deliveryTimer);
   const closing=server?new Promise(resolve=>server.close(resolve)):Promise.resolve();
-  await delivery?.stop();linkMonitor?.stop();bot?.destroy();await workflows?.stop();while(active)await new Promise(resolve=>setTimeout(resolve,100));
+  await delivery?.stop();await linkMonitor?.stop();bot?.destroy();await workflows?.stop();while(active)await new Promise(resolve=>setTimeout(resolve,100));
   await closing;await flushAuditWrites?.();await cache?.close();await db?.close();process.exit(code);
 }
 async function start(){
@@ -38,7 +38,7 @@ async function start(){
   cache=createMetricsCache();cache.start();service=createService(db,vault);const paypal=createPayPal();billing=createBilling(db,process.env,undefined,paypal);
   const app=createApp({db,vault,service,billing,paypal,cache,getBot:()=>bot});
   delivery=app.locals.delivery;await delivery.recover();
-  linkMonitor=createLinkMonitor(db,app.locals.operations,app.locals.members);
+  linkMonitor=createLinkMonitor(db,app.locals.operations,app.locals.members);app.locals.linkMonitor=linkMonitor;
   store=app.locals.store;flushAuditWrites=app.locals.flushAuditWrites;
   workflows=app.locals.workflows;await app.locals.configurations.recover();await workflows.recover();
   server=app.listen(Number(process.env.PORT||3000),()=>console.log('Rookrift is ready with PostgreSQL storage.'));

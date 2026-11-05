@@ -113,3 +113,9 @@ Migration 9 removes the one-owned-workspace constraint and adds game focus, cata
 Use one runtime with stop-first deployments. Its five-second purchase worker uses PostgreSQL records, not Redis, and commits an executing marker before sending a command. On restart an interrupted RCON action becomes uncertain for staff review; Discord grants can be rechecked idempotently. Do not reset uncertain jobs in SQL to force a replay.
 
 For Discord role rewards, use the dashboard's updated bot invite to grant **Manage Roles** and place the bot above the reward roles. The buyer needs Discord sign-in or a verified OAuth-linked Discord account and must join the linked guild. Run test-mode purchases against a disposable game world, including refund, offline-server and interrupted-command cases. See [purchase delivery](STOREFRONT.md) for identifier types and limitations. New workspaces have their own subscriptions and unpublished pages; no server moves automatically.
+
+## Release 0.11 community appearance and account linking
+
+Startup applies migration 16, retaining saved accounts and adding server-bound codes and verification provenance. Generate new link codes after upgrading. No environment change is required for native ARK linking: it uses existing RCON connections independently of hosting consoles. Use **Community hub → Account linking** for diagnostics. Raw log text never directly proves player identity. See [account linking](ACCOUNT-LINKING.md) before configuring a trusted server extension or the optional log bridge.
+
+Community logos are included in the public DTO and uploaded images have a route-specific 5 MB JSON envelope (3 MB decoded image limit). Appearance is saved inside the existing draft/published design JSON. Existing page content is preserved; owners publish new styling explicitly. See [community customisation](COMMUNITY.md).

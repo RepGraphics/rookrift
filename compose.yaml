@@ -49,13 +49,20 @@ services:
     profiles: ["link-agent"]
     restart: unless-stopped
     command: ["node", "scripts/link-agent.mjs"]
+    healthcheck:
+      disable: true
     environment:
       LINK_LOG_PATH: ${LINK_LOG_PATH:-/logs/server.log}
       ROOKRIFT_LINK_ENDPOINT: ${ROOKRIFT_LINK_ENDPOINT:-http://rookrift:3000/api/link-events}
       ROOKRIFT_LINK_TOKEN: ${ROOKRIFT_LINK_TOKEN:-}
       ROOKRIFT_SERVER_ID: ${ROOKRIFT_SERVER_ID:-}
     volumes:
-      - ${LINK_LOG_HOST_PATH:-./logs}:${LINK_LOG_PATH:-/logs/server.log}:ro
+      - type: bind
+        source: ${LINK_LOG_HOST_PATH:-./logs}
+        target: /logs
+        read_only: true
+        bind:
+          create_host_path: false
     depends_on:
       rookrift:
         condition: service_healthy
