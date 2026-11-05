@@ -1,4 +1,5 @@
 import {legalConfig} from '../shared/legal.js';
+import {createDiscordWorkspace} from './discord-workspace.js';
 import {avatarImage} from './avatars.js';
 import {createEmail} from './email.js';
 import {createPasswordLogin} from './password-login.js';
@@ -76,6 +77,7 @@ export function createApp({
   const community = createCommunity(db), members = createCommunityMembers(db, { service }), accountService = createAccount(db, vault, env, billing,email),passwordLogin=createPasswordLogin(db,accountService);
   const siteDesign=createCommunityDesign(db),store=providedStore||createCommunityStore(db,env);
   store.setEmail?.(email);
+  const saveDiscordWorkspace=createDiscordWorkspace(db,vault,{getBot,fetchGuilds:token=>discordFetch('/users/@me/guilds',token)});
   const delivery=createPurchaseDelivery(db,store,service,providedRewards||createDiscordRewards(getBot));
   store.setActionsValidator?.(delivery.validate);
   const banDirectory = createBanDirectory(db),
@@ -196,13 +198,15 @@ export function createApp({
   });
   app.get('/auth/discord/link', async (req, res) => {
     const token = req.cookies.rookrift_session;
-    const session = token && await db.prepare('SELECT user_id FROM sessions WHERE token_hash=? AND expires_at>?').get(hash(token), Date.now());
+    const session = token && await db.prepare('SELECT s.user_id,EXISTS(SELECT 1 FROM platform_impersonations p WHERE p.session_token_hash=s.token_hash) AS impersonating FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>? AND u.deleting_at IS NULL AND NOT EXISTS(SELECT 1 FROM suspended_users x WHERE x.user_id=u.id)').get(hash(token), Date.now());
     if (!session) { res.redirect('/login?return_to=%2Fdashboard%3Faccount%3Ddiscord'); return; }
+    if(session.impersonating){res.status(403).send('Leave support view before connecting a Discord account.');return;}
     if (!env.DISCORD_CLIENT_ID || !env.DISCORD_CLIENT_SECRET) { res.status(503).send('Discord linking is not configured. See the Rookrift setup guide.'); return; }
     const state = randomBytes(32).toString('hex');
     await db.prepare('INSERT INTO oauth_link_states VALUES(?,?,?)').run(hash(state), session.user_id, Date.now() + 600000);
     res.cookie('rookrift_oauth_link', state, { ...cookieOptions, maxAge: 600000 });
-    const params = new URLSearchParams({ client_id: env.DISCORD_CLIENT_ID, response_type: 'code', scope: 'identify', redirect_uri: env.DISCORD_REDIRECT_URI, state });
+    res.cookie('rookrift_link_return',accountReturn(req.query.return_to)||'/dashboard?account=discord', {...cookieOptions,maxAge:600000});
+    const params = new URLSearchParams({ client_id: env.DISCORD_CLIENT_ID, response_type: 'code', scope: 'identify guilds', redirect_uri: env.DISCORD_REDIRECT_URI, state });
     res.redirect(`https://discord.com/oauth2/authorize?${params}`);
   });
   app.get('/auth/discord/delete-confirm',async(req,res)=>{if(!env.DISCORD_CLIENT_ID||!env.DISCORD_CLIENT_SECRET){res.status(503).send('Discord verification is not configured.');return;}const session=req.cookies.rookrift_session&&await db.prepare('SELECT s.*,EXISTS(SELECT 1 FROM platform_impersonations p WHERE p.session_token_hash=s.token_hash) AS impersonating FROM sessions s WHERE token_hash=? AND expires_at>?').get(hash(req.cookies.rookrift_session),Date.now());if(!session){res.redirect('/login?return_to=%2Fdashboard%3Faccount%3Ddeletion');return;}const state=await deletion.beginDiscord(session.user_id,session);res.cookie('rookrift_oauth_delete',state,{...cookieOptions,maxAge:600000});const params=new URLSearchParams({client_id:env.DISCORD_CLIENT_ID,response_type:'code',scope:'identify',redirect_uri:env.DISCORD_REDIRECT_URI,state});res.redirect('https://discord.com/oauth2/authorize?'+params);});
@@ -237,10 +241,13 @@ export function createApp({
       user = await discordFetch('/users/@me', token.access_token);
     if(deleteRow){const proof=await deletion.discordProof(deleteRow,user.id);res.clearCookie('rookrift_oauth_delete',cookieOptions).cookie('rookrift_delete_proof',proof,{...cookieOptions,path:'/api/account/deletion',maxAge:600000}).redirect(origin+'/dashboard?account=delete-verified');return;}
     if (linkRow) {
+      const localSession=req.cookies.rookrift_session&&await db.prepare('SELECT s.user_id FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.user_id=? AND s.expires_at>? AND u.deleting_at IS NULL AND NOT EXISTS(SELECT 1 FROM suspended_users x WHERE x.user_id=u.id) AND NOT EXISTS(SELECT 1 FROM platform_impersonations p WHERE p.session_token_hash=s.token_hash)').get(hash(req.cookies.rookrift_session),linkRow.user_id,Date.now());
+      if(!localSession){res.status(401).send('Sign in to the original Rookrift account and reconnect Discord.');return;}
       const existing = await db.prepare('SELECT id FROM users WHERE discord_id=? AND id<>?').get(user.id, linkRow.user_id);
       if (existing) { res.status(409).send('That Discord account is already linked to another Rookrift account.'); return; }
-      await db.prepare('UPDATE users SET discord_id=?,avatar=COALESCE(avatar,?) WHERE id=?').run(user.id, user.avatar || null, linkRow.user_id);
-      res.redirect(origin + '/dashboard?account=discord-linked'); return;
+      await db.prepare('UPDATE users SET discord_id=?,avatar=COALESCE(avatar,?),access_token=? WHERE id=?').run(user.id, user.avatar || null,vault.encrypt(token.access_token), linkRow.user_id);
+      const destination=accountReturn(req.cookies.rookrift_link_return)||'/dashboard?account=discord';
+      res.clearCookie('rookrift_link_return',cookieOptions).redirect(origin + destination); return;
     }
     await db.prepare("INSERT INTO users(id,name,avatar,access_token,discord_id) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,avatar=CASE WHEN users.avatar LIKE 'data:image/%' THEN users.avatar ELSE excluded.avatar END,access_token=excluded.access_token,discord_id=excluded.discord_id").run(user.id, user.global_name || user.username, user.avatar || null, vault.encrypt(token.access_token), user.id);
     const returnPath=accountReturn(req.cookies.rookrift_return)||'/dashboard';
@@ -580,53 +587,7 @@ export function createApp({
       ok: true
     });
   });
-  app.patch('/api/workspace', async (req, res) => {
-    const input = z.object({
-      name: z.string().trim().min(2).max(60),
-      guild_id: z.string().regex(/^\d{17,20}$/).nullable().optional(),
-      alert_channel_id: z.string().regex(/^\d{17,20}$/).nullable().optional(),
-      alerts_enabled: z.boolean().optional(),
-      failure_threshold: z.coerce.number().int().min(1).max(5).optional()
-    }).parse(req.body);
-    let guildId = req.workspace.guild_id,
-      guildName = req.workspace.guild_name,
-      channelId = req.workspace.alert_channel_id;
-    const bot = getBot();
-    if (input.guild_id !== undefined && input.guild_id !== guildId) {
-      guildId = input.guild_id;
-      guildName = null;
-      channelId = null;
-      if (guildId) {
-        const user = await db.prepare('SELECT access_token FROM users WHERE id=?').get(req.auth.user_id);
-        const guilds = await discordFetch('/users/@me/guilds', vault.decrypt(user.access_token));
-        const guild = guilds.find(g => g.id === guildId && canManage(g));
-        if (!guild) throw Object.assign(new Error('You need Manage Server permission in that Discord community.'), {
-          status: 403
-        });
-        if (!bot?.isReady() || !(await bot.guilds.fetch(guildId).catch(() => null))) throw Object.assign(new Error('Invite the Rookrift bot to that Discord server first.'), {
-          status: 400
-        });
-        guildName = guild.name;
-      }
-    }
-    if (input.alert_channel_id !== undefined) {
-      channelId = input.alert_channel_id;
-      if (channelId && (channelId !== req.workspace.alert_channel_id || guildId !== req.workspace.guild_id)) {
-        const channel = bot?.isReady() && (await bot.channels.fetch(channelId).catch(() => null));
-        if (!channel || channel.guildId !== guildId || !channel.isTextBased() || !('send' in channel)) throw Object.assign(new Error('Choose a text channel in the linked Discord community.'), {
-          status: 400
-        });
-      }
-    }
-    const occupied = guildId && (await db.prepare('SELECT id FROM workspaces WHERE guild_id=? AND id!=?').get(guildId, req.workspace.id));
-    if (occupied) throw Object.assign(new Error('That Discord community is already linked to another workspace.'), {
-      status: 409
-    });
-    await db.prepare('UPDATE workspaces SET name=?,guild_id=?,guild_name=?,alert_channel_id=?,alerts_enabled=?,failure_threshold=? WHERE id=?').run(input.name, guildId, guildName, channelId, input.alerts_enabled === undefined ? req.workspace.alerts_enabled : Number(input.alerts_enabled), input.failure_threshold ?? req.workspace.failure_threshold, req.workspace.id);
-    res.json({
-      ok: true
-    });
-  });
+  app.patch('/api/workspace',async(req,res)=>res.json(await saveDiscordWorkspace(req.workspace,req.user,req.body)));
   app.post('/api/billing/checkout', async (req, res) => {
     const {
       plan

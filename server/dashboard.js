@@ -87,6 +87,8 @@ export async function buildDashboard({
     csrf: req.auth.csrf,
     integrations: {
       discord: Boolean(bot?.isReady()),
+      discord_linking_available:Boolean(env.DISCORD_CLIENT_ID&&env.DISCORD_CLIENT_SECRET),
+      discord_account_authorized:Boolean((await db.prepare('SELECT access_token FROM users WHERE id=?').get(req.user.id))?.access_token),
       billing: owner && billing.ready,
       invite
     }

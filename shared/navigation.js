@@ -1,10 +1,10 @@
 const plans=new Set(['tribe','cluster']);
 export function communityReturn(value){return typeof value==='string'&&/^\/c\/[a-z0-9-]{3,48}(?:\?page=[a-z0-9-]{1,40})?$/.test(value)?value:null;}
-export function accountReturn(value){return communityReturn(value)||(typeof value==='string'&&/^\/dashboard(?:\?(?:plan=(?:tribe|cluster)|account=(?:deletion|delete-verified)))?$/.test(value)?value:null);}
+export function accountReturn(value){return communityReturn(value)||(typeof value==='string'&&/^\/dashboard(?:\?(?:plan=(?:tribe|cluster)|account=(?:deletion|delete-verified|discord)|settings=discord))?$/.test(value)?value:null);}
 export function authDestination(search=''){
  const params=new URLSearchParams(search),community=communityReturn(params.get('return_to'));
  if(community)return community;
- const account=accountReturn(params.get('return_to'));if(account?.includes('?account='))return account;
+ const account=accountReturn(params.get('return_to'));if(account?.includes('?account=')||account?.includes('?settings='))return account;
  const plan=params.get('plan');return '/dashboard'+(plans.has(plan)?'?plan='+plan:'');
 }
 export function siteRoute(pathname,search='',hash=''){

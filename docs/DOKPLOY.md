@@ -139,3 +139,7 @@ The sign-in page now verifies email/password before displaying an authenticator 
 ## Release 0.13.1 account pictures
 
 This update reuses the existing user picture column and schema 18. Profile uploads accept a 5 MB request envelope with a 3 MB decoded image limit. Ensure any front proxy permits that route's body size. Uploaded images use an authenticated, privately revalidated endpoint; no public bucket or extra volume is required. Discord avatar hashes are resolved correctly and custom uploads survive Discord sign-in. See [account profiles](ACCOUNT-PROFILES.md) for display locations and access rules.
+
+## Release 0.13.2 Discord workspace settings
+
+No migration is required. Workspace Settings now supports reconnecting email-based users to Discord with the required server-list scope and encrypted OAuth token. Previously linked regular owners should reconnect once through the settings button. Platform roots can validate links through the bot without a personal Discord authorization. The bot must still be online, present in the guild and permitted to send in the selected channel. Save failures show inline and do not partially update the workspace. See [Discord connection setup](DISCORD-CONNECTION.md).

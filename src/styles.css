@@ -1177,3 +1177,5 @@ main.staff-main { max-width: 1340px; margin: 0 auto; padding: 35px 30px; }
 
 /* Keep navigation glyphs on the same visual centre as their labels. */
 .nav-item,.admin-nav-item{line-height:1.4}.nav-item>svg,.admin-nav-item>svg{display:block;flex:0 0 18px;width:18px;height:18px}.nav-item>span:not(.tiny-dot){min-width:0}.tabs>button{display:inline-flex;align-items:center;justify-content:center;gap:8px;line-height:1.35}.tabs>button>svg,.button>svg,.text-button>svg,.support-link>svg{display:block;flex-shrink:0}.icon-button{display:inline-flex;align-items:center;justify-content:center}.icon-button>svg{display:block;flex-shrink:0}
+
+.discord-settings-help{display:flex;gap:12px;align-items:flex-start;line-height:1.8;margin:20px 0}.discord-settings-help>svg{flex-shrink:0;margin-top:3px}.discord-settings-help>div{min-width:0}.discord-settings-help p{font-size:12px;margin:0 0 12px}.discord-settings-help .button{font-size:12px}.workspace-save-feedback{font-size:12px;line-height:1.8;margin:0 0 18px}
