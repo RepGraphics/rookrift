@@ -1,4 +1,6 @@
 import {legalConfig} from '../shared/legal.js';
+import {createEmail} from './email.js';
+import {createPasswordLogin} from './password-login.js';
 import {createAccountDeletion} from './account-deletion.js';
 import {createPurchaseDelivery,createDiscordRewards} from './purchase-delivery.js';
 import {createWorkspace,ensurePersonalWorkspace} from './workspaces.js';
@@ -52,6 +54,7 @@ export function createApp({
   service,
   billing,
   paypal,
+  email:providedEmail,
   store:providedStore,
   rewards:providedRewards,
   operations: providedOperations,
@@ -67,8 +70,11 @@ export function createApp({
   service.setBackupHandler?.((workspace,server)=>operations.hostingAction(workspace,server.id,{action:'backup',confirmation:server.name}));
   const workflows=providedWorkflows||createWorkflows(db,service,operations,{send:(ws,message)=>sendAlert(getBot(),ws,message)});
   const configurations=providedConfigurations||createConfigLibrary(db,vault,service,operations);
-  const community = createCommunity(db), members = createCommunityMembers(db, { service }), accountService = createAccount(db, vault, env, billing);
+  const email=providedEmail||createEmail(db,vault,env);
+  billing.setEmail?.(email);
+  const community = createCommunity(db), members = createCommunityMembers(db, { service }), accountService = createAccount(db, vault, env, billing,email),passwordLogin=createPasswordLogin(db,accountService);
   const siteDesign=createCommunityDesign(db),store=providedStore||createCommunityStore(db,env);
+  store.setEmail?.(email);
   const delivery=createPurchaseDelivery(db,store,service,providedRewards||createDiscordRewards(getBot));
   store.setActionsValidator?.(delivery.validate);
   const banDirectory = createBanDirectory(db),
@@ -85,6 +91,7 @@ export function createApp({
   app.locals.configurations=configurations;
   app.locals.store=store;app.locals.delivery=delivery;
   app.locals.members=members;
+  app.locals.email=email;
   app.locals.operations=operations;
   app.disable('x-powered-by');
   app.set('trust proxy', Number(env.TRUST_PROXY_HOPS || 0));
@@ -272,12 +279,14 @@ export function createApp({
   });
   app.post('/auth/login', authLimiter, async (req, res) => {
     const input = z.object({ email: emailSchema, password: z.string().max(128), totp: z.string().optional() }).strict().parse(req.body);
-    const account = await db.prepare('SELECT u.id, u.name, EXISTS(SELECT 1 FROM suspended_users s WHERE s.user_id=u.id) AS suspended, a.password_hash FROM local_accounts a JOIN users u ON u.id=a.user_id WHERE a.email=?').get(input.email);
-    if (!account || account.suspended || !(await verifyPassword(input.password, account.password_hash))) throw Object.assign(new Error('Email or password is incorrect.'), { status: 401 });
-    if (!(await accountService.verifyTotp(account.id, input.totp))) throw Object.assign(new Error('Enter the six-digit authenticator code to continue.'), { status: 401 });
-    await createSession(account.id, res);
+    const result=await passwordLogin.begin(input.email,input.password);
+    if(result.requires_totp){res.cookie('rookrift_login_challenge',result.challenge,{...cookieOptions,path:'/auth/login',sameSite:'strict',maxAge:300000}).json({ok:true,requires_totp:true});return;}
+    res.clearCookie('rookrift_login_challenge',{...cookieOptions,path:'/auth/login'});
+    await createSession(result.user_id, res);
     res.json({ ok: true });
   });
+  app.post('/auth/login/totp',authLimiter,async(req,res)=>{const input=z.object({code:z.string().max(6)}).strict().parse(req.body),result=await passwordLogin.complete(req.cookies.rookrift_login_challenge,input.code);res.clearCookie('rookrift_login_challenge',{...cookieOptions,path:'/auth/login'});await createSession(result.user_id,res);res.json({ok:true});});
+  app.post('/auth/login/cancel',authLimiter,async(req,res)=>{await passwordLogin.cancel(req.cookies.rookrift_login_challenge);res.clearCookie('rookrift_login_challenge',{...cookieOptions,path:'/auth/login'}).json({ok:true});});
   app.post('/auth/password-reset/request', authLimiter, async (req, res) => { await accountService.requestReset(req.body?.email); res.json({ ok: true, message: 'If that email belongs to an account, a reset link has been sent.' }); });
   app.post('/auth/password-reset/confirm', authLimiter, async (req, res) => res.json(await accountService.resetPassword(req.body?.token, req.body?.password)));
   app.post('/auth/passkeys/options', authLimiter, async (req, res) => res.json(await accountService.authenticationOptions()));
@@ -649,6 +658,10 @@ export function createApp({
   app.get('/api/platform', async (req,res)=>res.set('Cache-Control','no-store').json(await platformAdmin.overview(req.user)));
   app.get('/api/platform/bootstrap', async (req,res)=>res.set('Cache-Control','no-store').json({...await platformAdmin.overview(req.user),csrf:req.auth.csrf}));
   app.patch('/api/platform/settings', async (req,res)=>res.json(await platformAdmin.updateSettings(req.user,req.body)));
+  app.get('/api/platform/email',async(req,res)=>res.json(await email.settings()));
+  app.patch('/api/platform/email',async(req,res)=>res.json(await email.save(req.body)));
+  app.post('/api/platform/email/test',rateLimit({windowMs:900000,limit:5,standardHeaders:'draft-8',legacyHeaders:false}),async(req,res)=>res.json(await email.test(req.user.id)));
+  app.post('/api/platform/email/retry',async(req,res)=>res.json(await email.retryFailed()));
   app.patch('/api/platform/workspaces/:id', async (req,res)=>res.json(await platformAdmin.updateWorkspace(req.user,req.params.id,req.body)));
   app.put('/api/platform/workspaces/:id/community', async (req,res)=>res.json(await platformAdmin.updateCommunity(req.user,req.params.id,req.body)));
   app.patch('/api/platform/users/:id/suspension', async (req,res)=>res.json(await platformAdmin.suspend(req.user,req.params.id,req.body?.suspended)));

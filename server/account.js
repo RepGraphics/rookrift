@@ -1,15 +1,16 @@
 import { randomBytes, randomUUID, createHmac } from 'node:crypto';
 import { generateRegistrationOptions, verifyRegistrationResponse, generateAuthenticationOptions, verifyAuthenticationResponse } from '@simplewebauthn/server';
 import { hash, hashPassword, verifyPassword } from './crypto.js';
-import nodemailer from 'nodemailer';
+import {createEmail} from './email.js';
+import {withAccountLock,assertAccountOpen} from './account-lock.js';
 
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
-const base32 = value => value.toString('base64').replace(/[^A-Z2-7]/gi, '').toUpperCase().slice(0, 32);
+const base32 = value => {const alphabet='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';let bits=0,buffer=0,result='';for(const byte of value){buffer=(buffer<<8)|byte;bits+=8;while(bits>=5){bits-=5;result+=alphabet[(buffer>>>bits)&31];}}if(bits)result+=alphabet[(buffer<<(5-bits))&31];return result;};
 const hotp = (secret, counter) => {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
   let bits = ''; for (const char of secret) { const n = alphabet.indexOf(char); if (n >= 0) bits += n.toString(2).padStart(5, '0'); }
   const bytes = Buffer.alloc(Math.floor(bits.length / 8)); for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(bits.slice(i * 8, i * 8 + 8), 2);
-  const mac = createHmac('sha1', bytes).update(Buffer.from(BigInt(counter).toString(16).padStart(16, '0'), 'hex').digest()).digest();
+  const mac = createHmac('sha1', bytes).update(Buffer.from(BigInt(counter).toString(16).padStart(16, '0'), 'hex')).digest();
   const offset = mac.at(-1) & 15; return String((mac.readUInt32BE(offset) & 0x7fffffff) % 1000000).padStart(6, '0');
 };
 const totpValid = (secret, code) => [ -1, 0, 1 ].some(offset => hotp(secret, Math.floor(Date.now() / 30000) + offset) === String(code).trim());
@@ -19,14 +20,10 @@ const profileImage = value => {
   return value;
 };
 
-export function createAccount(db, vault, env, billing) {
+export function createAccount(db, vault, env, billing, providedEmail) {
   const rpID = new URL(env.APP_URL || 'http://localhost:3000').hostname;
   const origin = new URL(env.APP_URL || 'http://localhost:3000').origin;
-  const sendMail = async (to, subject, text) => {
-    if (!env.SMTP_HOST || !env.SMTP_FROM) throw Object.assign(new Error('Password reset email is not configured. Ask the service owner to configure SMTP.'), { status: 503 });
-    const transport = nodemailer.createTransport({ host: env.SMTP_HOST, port: Number(env.SMTP_PORT || 587), secure: env.SMTP_SECURE === 'true', auth: env.SMTP_USER ? { user: env.SMTP_USER, pass: env.SMTP_PASSWORD } : undefined });
-    await transport.sendMail({ from: env.SMTP_FROM, to, subject, text });
-  };
+  const emailService=providedEmail||createEmail(db,vault,env);
   const security = async userId => await db.prepare('SELECT * FROM account_security WHERE user_id=?').get(userId);
   const ensureSecurity = async userId => { await db.prepare('INSERT INTO account_security(user_id,updated_at) VALUES(?,?) ON CONFLICT DO NOTHING').run(userId, Date.now()); return security(userId); };
   const passkeys = async userId => (await db.prepare('SELECT id,credential_id,label,created_at,last_used_at FROM account_passkeys WHERE user_id=? ORDER BY created_at').all(userId)).map(row => ({ ...row, credential_id: undefined }));
@@ -98,16 +95,16 @@ export function createAccount(db, vault, env, billing) {
     },
     async removePasskey(userId, id) { if (!(await db.prepare('DELETE FROM account_passkeys WHERE id=? AND user_id=?').run(id, userId)).changes) fail('Passkey not found.', 404); return get(userId); },
     async requestReset(email) {
-      const local = await db.prepare('SELECT a.user_id,a.email FROM local_accounts a WHERE a.email=?').get(String(email || '').trim().toLowerCase());
+      const local = await db.prepare('SELECT a.user_id FROM local_accounts a JOIN users u ON u.id=a.user_id WHERE a.email=? AND u.deleting_at IS NULL AND NOT EXISTS(SELECT 1 FROM suspended_users s WHERE s.user_id=u.id)').get(String(email || '').trim().toLowerCase());
       if (!local) return { ok: true };
-      const token = randomBytes(32).toString('hex'); await db.prepare('INSERT INTO password_reset_tokens VALUES(?,?,?,NULL)').run(hash(token), local.user_id, Date.now() + 3600000);
-      await sendMail(local.email, 'Reset your Rookrift password', `Reset your password: ${origin}/reset-password?token=${token}\n\nThis link expires in one hour.`);
+      await withAccountLock(local.user_id,async()=>{const user=await db.prepare('SELECT id,deleting_at FROM users WHERE id=?').get(local.user_id);if(!user||user.deleting_at)return;if(await db.prepare('SELECT 1 FROM password_reset_tokens WHERE user_id=? AND expires_at>? AND used_at IS NULL').get(local.user_id,Date.now()+3540000))return;const token=randomBytes(32).toString('hex'),expires=Date.now()+3600000;await db.transaction(async()=>{if(await emailService.passwordReset(local.user_id,token,expires))await db.prepare('INSERT INTO password_reset_tokens VALUES(?,?,?,NULL)').run(hash(token),local.user_id,expires);});});
       return { ok: true };
     },
     async resetPassword(token, password) {
       if (typeof password !== 'string' || password.length < 8 || password.length > 128) fail('Choose a password between 8 and 128 characters.');
-      const row = await db.prepare('DELETE FROM password_reset_tokens WHERE token_hash=? AND expires_at>? AND used_at IS NULL RETURNING user_id').get(hash(token), Date.now()); if (!row) fail('This password reset link is invalid or expired.', 400);
-      await db.prepare('UPDATE local_accounts SET password_hash=? WHERE user_id=?').run(await hashPassword(password), row.user_id); await db.prepare('DELETE FROM sessions WHERE user_id=?').run(row.user_id); return { ok: true };
+      if(!/^[a-f0-9]{64}$/.test(token||''))fail('This password reset link is invalid or expired.',400);
+      const row=await db.prepare('SELECT user_id FROM password_reset_tokens WHERE token_hash=? AND expires_at>? AND used_at IS NULL').get(hash(token),Date.now());if(!row)fail('This password reset link is invalid or expired.',400);
+      return withAccountLock(row.user_id,async()=>{await assertAccountOpen(db,row.user_id);const encoded=await hashPassword(password);return db.transaction(async()=>{if(!await db.prepare('DELETE FROM password_reset_tokens WHERE token_hash=? AND expires_at>? RETURNING user_id').get(hash(token),Date.now()))fail('This password reset link is invalid or expired.',400);await db.prepare('UPDATE local_accounts SET password_hash=? WHERE user_id=?').run(encoded,row.user_id);for(const table of ['sessions','password_reset_tokens','login_challenges'])await db.prepare('DELETE FROM '+table+' WHERE user_id=?').run(row.user_id);await db.prepare("UPDATE email_outbox SET status='cancelled',payload=NULL,last_error='Password already updated.' WHERE user_id=? AND kind='password_reset' AND status IN ('pending','failed')").run(row.user_id);return{ok:true};});});
     }
   };
 }

@@ -5,6 +5,7 @@ import Stripe from 'stripe';
 import { audit } from './db.js';
 import { PLANS } from './plans.js';
 export function createBilling(db, env = process.env, injectedStripe, paypal) {
+  let email;
   const stripe = injectedStripe || (env.STRIPE_SECRET_KEY ? new Stripe(env.STRIPE_SECRET_KEY,{timeout:10000,maxNetworkRetries:1}) : null);
   const prices = {
     tribe: env.STRIPE_TRIBE_MONTHLY_PRICE_ID,
@@ -38,6 +39,7 @@ export function createBilling(db, env = process.env, injectedStripe, paypal) {
     if (workspace.plan !== plan || workspace.subscription_status !== subscription.status) await audit(db, workspace.id, 'Subscription updated', `${plan} · ${subscription.status}`);
   }
   const api={
+    setEmail(value){email=value;},
     ...membershipClosure(db,stripe,paypal),
     async accountHistory(workspaces) {
       const history = [];
@@ -177,6 +179,7 @@ export function createBilling(db, env = process.env, injectedStripe, paypal) {
       const object = event.data.object;
       const subscriptionId = event.type.startsWith('customer.subscription.') ? object.id : event.type === 'checkout.session.completed' ? object.subscription : ['invoice.paid', 'invoice.payment_failed'].includes(event.type) ? object.parent?.subscription_details?.subscription || object.subscription : null;
       if (subscriptionId) await syncSubscription(typeof subscriptionId === 'string' ? subscriptionId : subscriptionId.id);
+      if(event.type==='invoice.paid'&&email&&await email.enabled('billing')&&stripe.invoices?.retrieve&&(!event.created||event.created*1000>Date.now()-86400000))await email.invoicePaid(await stripe.invoices.retrieve(object.id));
       await db.prepare('INSERT INTO stripe_events VALUES(?,?) ON CONFLICT DO NOTHING').run(event.id, Date.now());
     },
     async reconcile() {

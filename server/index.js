@@ -8,7 +8,7 @@ import {startBot,sendAlert} from './bot.js';
 import {createPayPal} from './paypal.js';
 import {createLinkMonitor} from './link-monitor.js';
 
-let db,cache,server,bot,interval,workflows,workflowTimer,deliveryTimer,delivery,linkMonitor,stopping=false,active=false,cycle=0;
+let db,cache,server,bot,interval,workflows,workflowTimer,deliveryTimer,delivery,email,emailTimer,linkMonitor,stopping=false,active=false,cycle=0;
 async function tick(){
   if(active||stopping)return;active=true;
   try{
@@ -17,13 +17,15 @@ async function tick(){
     await store?.reconcile();
     await db.prepare('DELETE FROM sessions WHERE expires_at<?').run(Date.now());
     await db.prepare('DELETE FROM oauth_states WHERE expires_at<?').run(Date.now()); await db.prepare('DELETE FROM oauth_link_states WHERE expires_at<?').run(Date.now());
+    await db.prepare('DELETE FROM login_challenges WHERE expires_at<?').run(Date.now());
+    await db.prepare('DELETE FROM password_reset_tokens WHERE expires_at<?').run(Date.now());
   }catch{console.error('Background cycle failed; retrying next minute.');}finally{active=false;}
 }
 let service,billing,store,flushAuditWrites;
 async function stop(code=0){
-  if(stopping)return;stopping=true;clearInterval(interval);clearInterval(workflowTimer);clearInterval(deliveryTimer);
+  if(stopping)return;stopping=true;clearInterval(interval);clearInterval(workflowTimer);clearInterval(deliveryTimer);clearInterval(emailTimer);
   const closing=server?new Promise(resolve=>server.close(resolve)):Promise.resolve();
-  await delivery?.stop();await linkMonitor?.stop();bot?.destroy();await workflows?.stop();while(active)await new Promise(resolve=>setTimeout(resolve,100));
+  await email?.stop();await delivery?.stop();await linkMonitor?.stop();bot?.destroy();await workflows?.stop();while(active)await new Promise(resolve=>setTimeout(resolve,100));
   await closing;await flushAuditWrites?.();await cache?.close();await db?.close();process.exit(code);
 }
 async function start(){
@@ -38,12 +40,14 @@ async function start(){
   await db.prepare('UPDATE users SET deleting_at=NULL WHERE deleting_at IS NOT NULL').run();
   cache=createMetricsCache();cache.start();service=createService(db,vault);const paypal=createPayPal();billing=createBilling(db,process.env,undefined,paypal);
   const app=createApp({db,vault,service,billing,paypal,cache,getBot:()=>bot});
+  email=app.locals.email;await email.recover();
   delivery=app.locals.delivery;await delivery.recover();
   linkMonitor=createLinkMonitor(db,app.locals.operations,app.locals.members);app.locals.linkMonitor=linkMonitor;
   store=app.locals.store;flushAuditWrites=app.locals.flushAuditWrites;
   workflows=app.locals.workflows;await app.locals.configurations.recover();await workflows.recover();
   server=app.listen(Number(process.env.PORT||3000),()=>console.log('Rookrift is ready with PostgreSQL storage.'));
   deliveryTimer=setInterval(()=>delivery.tick().catch(()=>console.error('Purchase delivery cycle failed.')),5000);
+  emailTimer=setInterval(()=>email.tick().catch(()=>console.error('Email delivery cycle failed; retrying next cycle.')),5000);
   interval=setInterval(tick,60000);void tick();
   workflowTimer=setInterval(()=>workflows.tick().catch(()=>console.error('Workflow cycle failed; it will retry.')),5000);
   void workflows.tick().catch(()=>console.error('Workflow cycle failed; it will retry.'));

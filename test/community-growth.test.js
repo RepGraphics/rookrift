@@ -13,7 +13,7 @@ import {DEFAULT_DESIGN} from '../shared/community-design.js';
 import {ensurePersonalWorkspace} from '../server/workspaces.js';
 
 async function fixture(t,options={}){
- const commands=[],awards=[];const db=await openDatabase(':memory:'),vault=createVault(randomBytes(32).toString('hex')),sessions=new Map();let creates=0,uncertain=false;
+ const commands=[],awards=[],mailed=[];const db=await openDatabase(':memory:'),vault=createVault(randomBytes(32).toString('hex')),sessions=new Map();let creates=0,uncertain=false;
  for(const id of ['owner','buyer','other','admin','mod','scoped','123456789012345678']){await db.prepare('INSERT INTO users VALUES(?,?,NULL,?)').run(id,id,'private-token');await db.prepare('INSERT INTO sessions VALUES(?,?,?,?)').run(hash(id),id,id+'-csrf',Date.now()+600000);}
  await db.prepare("INSERT INTO workspaces(id,owner_id,plan,subscription_status,created_at) VALUES('w','owner','cluster','active',1)").run();
  for(const [id,role,scope]of [['admin','admin',null],['mod','moderator',null],['scoped','admin','[]']])await db.prepare("INSERT INTO workspace_members VALUES(?,'w',?,?,?,1)").run(randomUUID(),id,role,scope);
@@ -24,14 +24,14 @@ async function fixture(t,options={}){
  const env={APP_URL:'http://localhost:3000',STRIPE_CONNECT_WEBHOOK_SECRET:'whsec_community_fixture'},store=createCommunityStore(db,env,stripe),service=createService(db,vault,async(server,vault,action,message)=>{if(action==='purchase'){commands.push({server_id:server.id,command:message});if(options.failCommand)throw new Error('Lost RCON reply');}return{output:'OK',players:[],latency:1};}),community=createCommunity(db);
  const site={slug:'test-community',title:'Test Community',summary:'Welcome',rules:'Be kind.',discord_url:'',enabled:true,join_requests_open:true,staff_applications_open:false,join_questions:['Why join us?'],staff_questions:['What can you offer the team?'],server_ids:[]};await community.saveSite('w',site);
  const rewards={roles:async()=>[{id:'223456789012345670',name:'Supporter'}],check:async(guild,id)=>{if(id!=='223456789012345670')throw Object.assign(new Error('Role is not assignable.'),{status:409});return 'Supporter';},award:async(guild,role,user,id)=>{awards.push({guild,role,user,id});return{preexisting:false};}};
- const app=createApp({db,vault,service,store,rewards,billing:{ready:false},env}),http=app.listen(0,'127.0.0.1');await once(http,'listening');
+ const app=createApp({db,vault,service,store,rewards,billing:{ready:false},env}),http=app.listen(0,'127.0.0.1');await once(http,'listening');store.setEmail({storePaid:async order=>mailed.push(order.id)});
  t.after(async()=>{http.closeAllConnections();await new Promise(r=>http.close(r));await app.locals.flushAuditWrites();await db.close();});
  const request=async(path,method='GET',body,user='owner',csrf=true)=>{const r=await fetch('http://127.0.0.1:'+http.address().port+'/api'+path,{method,headers:{'Content-Type':'application/json',...(user?{Cookie:'rookrift_session='+user}:{}),...(csrf?{Origin:env.APP_URL,'X-CSRF-Token':user+'-csrf'}:{})},...(body?{body:JSON.stringify(body)}:{})});return{status:r.status,body:await r.json()};};
  const settings={enabled:true,currency:'gbp',country:'GB',delivery_note:'Contact staff in Discord. Delivery within 24 hours.',refund_policy:'Contact staff before delivery to request a refund.'};
  async function openStore(){await store.settings('w',settings);await store.connect('w');await store.refreshAccount('w');await store.product('w',null,{title:'Starter kit',description:'A building starter kit delivered by staff.',price:500,game:'asa',published:true});return(await store.manage('w')).products[0];}
  const pay=id=>{const s=sessions.get(id);s.payment_status='paid';s.status='complete';s.payment_intent={id:'pi_'+s.client_reference_id,status:'succeeded',latest_charge:{id:'ch_'+s.client_reference_id,amount:s.amount_total,currency:s.currency,amount_refunded:0,disputed:false}};return s;};
  async function event(object,type='checkout.session.completed',account='acct_fixture',id=randomUUID()) {const body=JSON.stringify({id,type,account,data:{object}}),signature=stripe.webhooks.generateTestHeaderString({payload:body,secret:env.STRIPE_CONNECT_WEBHOOK_SECRET});const r=await fetch('http://127.0.0.1:'+http.address().port+'/api/webhooks/community-stripe',{method:'POST',headers:{'Content-Type':'application/json','stripe-signature':signature},body});return r.status;}
- return{db,vault,service,store,community,site,request,openStore,settings,sessions,pay,event,commands,awards,delivery:app.locals.delivery,get creates(){return creates;},loseResponse(){uncertain=true;}};
+ return{db,vault,service,store,community,site,request,openStore,settings,sessions,pay,event,commands,awards,mailed,delivery:app.locals.delivery,get creates(){return creates;},loseResponse(){uncertain=true;}};
 }
 
 test('join requests and staff applications close independently and retain their separate review queues',async t=>{
@@ -62,7 +62,7 @@ test('store checkout uses server prices, stable reservations and merchant contex
  const order=await f.db.prepare('SELECT * FROM store_orders WHERE id=?').get(body.request_id);assert.equal(order.amount,500);assert.equal(order.fulfillment_status,'awaiting_payment');
  assert.equal((await f.request('/community/store/orders/'+order.id+'/fulfill','POST',{note:'Delivered by staff.'})).status,409);
  assert.equal((await f.request(base+'/orders/'+order.id+'/refresh','POST',{},'other')).status,404);
- const session=f.pay(order.checkout_session_id);assert.equal(await f.event(session),200);assert.equal((await f.store.manage('w')).orders[0].fulfillment_status,'pending');
+ const session=f.pay(order.checkout_session_id);assert.equal(await f.event(session),200);await f.store.verifyForDelivery('w',order.id);assert.deepEqual(f.mailed,[order.id]);assert.equal((await f.store.manage('w')).orders[0].fulfillment_status,'pending');
  const deliveries=await Promise.all([f.store.fulfill('w',order.id,{note:'Delivered at the community hub.'},{id:'owner',name:'Owner'}),f.store.fulfill('w',order.id,{note:'Second attempt.'},{id:'owner',name:'Owner'})].map(p=>p.then(()=>200,e=>e.status)));assert.deepEqual(deliveries.sort(),[200,409]);
  assert.equal((await f.request(base+'/orders','GET',null,'other')).body.length,0);const own=(await f.request(base+'/orders','GET',null,'buyer')).body[0];assert.equal(own.fulfillment_status,'fulfilled');assert.ok(!JSON.stringify(own).includes('acct_fixture'));assert.ok(!JSON.stringify(own).includes('stripe_account'));
  await f.store.product('w',p.id,{title:'Edited kit',description:'Different contents after purchase.',price:999,game:'ase',published:false});await f.store.settings('w',{...f.settings,enabled:false,delivery_note:'New delivery terms for future orders.'});await f.store.archive('w',p.id);

@@ -127,3 +127,11 @@ Back up PostgreSQL and retain the encryption key before applying migration 17. I
 Public legal routes are `/terms`, `/refund-policy` and `/privacy-policy`. The supplied operator is Euphoria Development in the UK, using support@euphoriadevelopment.uk. Optional `LEGAL_*` environment fields are documented in `.env.example`. Supply the business contact address and review the policies, provider/transfer details, refund offer and backup retention before paid launch. Missing address information keeps a visible draft notice.
 
 My account now includes deletion after live verification that all owned memberships have been cancelled. Provider outages and unresolved external checkouts block closure. Cancellation scheduled with Stripe is accepted, but closure ends access immediately and does not refund payments. Password/passkey/Discord re-verification, existing 2FA, checkout fencing and executing-operation checks protect final deletion. No real hosted game server is destroyed. See [the deletion and retention guide](LEGAL-AND-ACCOUNT-DELETION.md) for financial records, restore procedures and manual privacy/refund requests.
+
+## Release 0.13 account screens and email
+
+Back up PostgreSQL before migration 18. It adds the SMTP outbox and expiring password-login challenges; no additional container is needed. Keep one application replica with stop-first deployment. A new email worker shares the existing runtime and PostgreSQL durability.
+
+Platform administrators can configure SMTP, enable transactional notifications and send a test to their own account in **Global settings → Email & SMTP**. These encrypted settings apply immediately and override SMTP environment defaults. Delivery requires actual provider credentials and a permitted sender. Sales notifications default off and currently cover verified Stripe membership invoices and Stripe Connect store payments. See [email and authentication](EMAIL-AND-AUTHENTICATION.md) for settings, retries, retention and provider limitations.
+
+The sign-in page now verifies email/password before displaying an authenticator code prompt. Existing authenticator accounts retain their secrets. Password recovery is available at `/forgot-password`; links last one hour and a successful reset revokes sessions and pending sign-in challenges.

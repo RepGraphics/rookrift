@@ -11,7 +11,7 @@ export function siteRoute(pathname,search='',hash=''){
  const path=pathname.replace(/\/+$/,'')||'/',params=new URLSearchParams(search),community=path.match(/^\/c\/([a-z0-9-]{3,48})$/);
  if(community)return{page:'community',slug:community[1]};
  const legal={'/terms':'terms','/terms-of-service':'terms','/refund-policy':'refund','/refunds':'refund','/privacy-policy':'privacy','/privacy':'privacy'};if(legal[path])return{page:'legal',kind:legal[path]};
- if(['/dashboard','/admin','/login','/register','/reset-password'].includes(path))return{page:path.slice(1)};
+ if(['/dashboard','/admin','/login','/register','/forgot-password','/reset-password'].includes(path))return{page:path.slice(1)};
  if(path==='/'){
   // Retain links sent before the public homepage had its own route.
   if(params.has('return_to'))return{page:'login'};

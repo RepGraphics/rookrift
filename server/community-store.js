@@ -17,6 +17,7 @@ const limitFor=plan=>({scout:5,tribe:25,cluster:100})[plan.id];
 const stripeUrl=value=>{try{const u=new URL(value);if(u.protocol==='https:'&&['connect.stripe.com','checkout.stripe.com'].includes(u.hostname))return value;}catch{}fail('Stripe did not return a valid hosted payment URL.',502);};
 
 export function createCommunityStore(db,env=process.env,injectedStripe){
+ let email;
  const stripe=injectedStripe||(env.STRIPE_CONNECT_SECRET_KEY?new Stripe(env.STRIPE_CONNECT_SECRET_KEY,{timeout:10000,maxNetworkRetries:1}):null);
  let validateActions=async()=>{fail('Purchase action configuration is unavailable.',503);};
  const ready=Boolean(stripe&&env.STRIPE_CONNECT_WEBHOOK_SECRET);
@@ -43,9 +44,10 @@ export function createCommunityStore(db,env=process.env,injectedStripe){
   await db.prepare('UPDATE store_orders SET payment_status=?,fulfillment_status=?,payment_intent_id=COALESCE(?,payment_intent_id),updated_at=? WHERE id=?').run(status,fulfillment,intentId,Date.now(),row.id);
   if(['refunded','partially_refunded','disputed'].includes(status))await db.prepare("UPDATE store_delivery_jobs SET status='cancelled',detail='Payment requires review; remaining actions cancelled.',updated_at=? WHERE order_id=? AND status IN ('pending','blocked')").run(Date.now(),row.id);
   if(status==='paid'&&row.payment_status!=='paid')await notify(db,row.workspace_id,'Store payment received',row.title+(parseActions(row.delivery_actions).length?' has purchase actions queued.':' is awaiting community staff delivery.'),'success','community',row.id);
-  const current=await owned(row.workspace_id,row.id);await enqueueDelivery(db,current);await refreshDeliveryStatus(db,row.workspace_id,row.id);return owned(row.workspace_id,row.id);
+  const current=await owned(row.workspace_id,row.id);if(status==='paid'&&row.payment_status!=='paid')await email?.storePaid({...current,paid_at:(charge?.created||session.created)?(charge?.created||session.created)*1000:Date.now()});await enqueueDelivery(db,current);await refreshDeliveryStatus(db,row.workspace_id,row.id);return owned(row.workspace_id,row.id);
  }
  const api={
+  setEmail(value){email=value;},
   ready,
   setActionsValidator(fn){validateActions=fn;},
   async verifyForDelivery(ws,id){return db.withWorkspaceLock(ws,async()=>syncOrder(await owned(ws,id)));},
