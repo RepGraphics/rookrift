@@ -17,12 +17,12 @@ async function tick(){
     await db.prepare('DELETE FROM oauth_states WHERE expires_at<?').run(Date.now());
   }catch{console.error('Background cycle failed; retrying next minute.');}finally{active=false;}
 }
-let service,billing,store;
+let service,billing,store,flushAuditWrites;
 async function stop(code=0){
   if(stopping)return;stopping=true;clearInterval(interval);clearInterval(workflowTimer);bot?.destroy();
   const closing=server?new Promise(resolve=>server.close(resolve)):Promise.resolve();
   await workflows?.stop();while(active)await new Promise(resolve=>setTimeout(resolve,100));
-  await closing;await cache?.close();await db?.close();process.exit(code);
+  await closing;await flushAuditWrites?.();await cache?.close();await db?.close();process.exit(code);
 }
 async function start(){
   if(!process.env.APP_URL)throw new Error('APP_URL is required.');
@@ -35,7 +35,7 @@ async function start(){
   await db.acquireRuntimeLock(()=>{console.error('PostgreSQL runtime lease lost; stopping to prevent duplicate workers.');process.exit(1);});
   cache=createMetricsCache();cache.start();service=createService(db,vault);billing=createBilling(db);
   const app=createApp({db,vault,service,billing,cache,getBot:()=>bot});
-  store=app.locals.store;
+  store=app.locals.store;flushAuditWrites=app.locals.flushAuditWrites;
   workflows=app.locals.workflows;await app.locals.configurations.recover();await workflows.recover();
   server=app.listen(Number(process.env.PORT||3000),()=>console.log('Rookrift is ready with PostgreSQL storage.'));
   interval=setInterval(tick,60000);void tick();

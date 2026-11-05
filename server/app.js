@@ -68,6 +68,8 @@ export function createApp({
   const app = express(),
     origin = new URL(env.APP_URL || 'http://localhost:3000').origin;
   const secure = env.NODE_ENV === 'production';
+  const pendingAuditWrites=new Set();
+  app.locals.flushAuditWrites=async()=>{while(pendingAuditWrites.size)await Promise.all([...pendingAuditWrites]);};
   app.locals.workflows=workflows;
   app.locals.configurations=configurations;
   app.locals.store=store;
@@ -285,8 +287,10 @@ export function createApp({
         workspace = req.workspace.id,
         user = req.user,
         server = req.body?.server_id || null;
-      res.on('finish', async () => {
-        if (res.statusCode < 300) await staffAudit(db, workspace, user, action, null, server).catch(() => console.error('Staff audit write failed.'));
+      res.on('finish', () => {
+        if(res.statusCode>=300)return;
+        const write=staffAudit(db,workspace,user,action,null,server).catch(()=>console.error('Staff audit write failed.'));
+        pendingAuditWrites.add(write);write.finally(()=>pendingAuditWrites.delete(write));
       });
     }
     next();

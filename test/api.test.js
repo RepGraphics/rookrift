@@ -47,8 +47,8 @@ async function setup(t, options = {}) {
   const url = `http://127.0.0.1:${server.address().port}`;
   t.after(async () => {
     server.closeAllConnections();
-    server.close();
-    await db.close();
+    await new Promise(resolve=>server.close(resolve));
+    try{await app.locals.flushAuditWrites();}finally{await db.close();}
   });
   const headers = {
     Cookie: 'rookrift_session=test-session',
@@ -60,11 +60,18 @@ async function setup(t, options = {}) {
     db,
     service,
     operations,
+    app,
     url,
     headers
   };
 }
 test('readiness depends on PostgreSQL and reports optional cache status without connection details',async t=>{const {db,url}=await setup(t);let response=await fetch(url+'/api/ready');assert.equal(response.status,200);assert.deepEqual(await response.json(),{status:'ok',database:'postgres',cache:'disabled'});db.ping=async()=>{throw new Error('fixture-private-connection-string');};response=await fetch(url+'/api/ready');assert.equal(response.status,503);assert.equal(JSON.stringify(await response.json()).includes('fixture-private'),false);});
+test('shutdown waits for audit writes accepted after an HTTP response finishes',async t=>{
+ const {db,service,app,url,headers}=await setup(t),server=await service.addServer('w1',{name:'Audit world',game:'asa',map:'Island',host:'8.8.8.8',port:27020,password:'fixture'}),original=db.query;
+ let release,entered;const gate=new Promise(resolve=>{release=resolve;}),started=new Promise(resolve=>{entered=resolve;});
+ db.query=async(text,values)=>{if(text.startsWith('INSERT INTO staff_audit ')){entered();await gate;}return original(text,values);};
+ try{const response=await fetch(url+'/api/servers/'+server.id+'/actions',{method:'POST',headers,body:JSON.stringify({action:'save'})});assert.equal(response.status,200);await response.json();await started;let drained=false;const drain=app.locals.flushAuditWrites().then(()=>{drained=true;});await Promise.resolve();assert.equal(drained,false);release();await drain;assert.equal((await db.prepare('SELECT count(*) AS n FROM staff_audit').get()).n,1);}finally{release();db.query=original;}
+});
 test('ban directory endpoints require sessions, CSRF and exact validated IDs', async t => {
   const {
     url,
