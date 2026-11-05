@@ -49,7 +49,7 @@ test('automation creation, pause toggle, and keyboard dialog dismissal work', as
 });
 test('workspace settings and search navigation work', async () => {
   const user = userEvent.setup(); render(<App/>);
-  await user.click(screen.getByRole('button', { name: 'Settings' }));
+  await user.click(screen.getByRole('button', { name: 'Workspace settings' }));
   const input = screen.getByLabelText('Workspace name'); await user.clear(input); await user.type(input, 'New tribe');
   await user.click(screen.getByRole('button', { name: 'Save changes' }));
   expect(JSON.parse(localStorage.getItem('rookrift-demo-v1')).workspace.name).toBe('New tribe');
@@ -140,7 +140,7 @@ test('automation editing and run-now retain an outcome without shifting the next
   const task=JSON.parse(localStorage.getItem('rookrift-demo-v1')).schedules.find(item=>item.id==='t1');expect(task.last_status).toBe('success');expect(task.next_run).toBe(next);
 });
 test('connection alerts and searchable activity filters persist or narrow the intended records', async () => {
-  const user=userEvent.setup();render(<App/>);await user.click(screen.getByRole('button',{name:'Settings'}));
+  const user=userEvent.setup();render(<App/>);await user.click(screen.getByRole('button',{name:'Workspace settings'}));
   await user.click(screen.getByRole('checkbox',{name:/Enable Discord connection alerts/}));await user.click(screen.getByRole('button',{name:'Save changes'}));
   expect(JSON.parse(localStorage.getItem('rookrift-demo-v1')).workspace.alerts_enabled).toBe(false);
   await user.click(screen.getByRole('button',{name:'Activity log'}));await user.selectOptions(screen.getByLabelText('Activity server filter'),'d3');
