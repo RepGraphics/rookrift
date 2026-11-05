@@ -83,6 +83,18 @@ test('an existing second factor is still required after fresh password or passke
  const f=await fixture(t),engine=createAccountDeletion(f.db,{billing:f.billing,service:f.service,store:f.app.locals.store,account:{verifyTotp:async(_,code)=>code==='123456'},env:f.env}),session={token_hash:hash('owner')},proof=await engine.password('owner',session,{password:f.password});await assert.rejects(engine.remove('owner',session,proof,f.input),/authenticator/);assert.ok(await f.db.prepare("SELECT id FROM users WHERE id='owner'").get());assert.deepEqual(await engine.remove('owner',session,proof,{...f.input,totp:'123456'}),{ok:true});
 });
 
+test('Discord deletion verification returns to a validated community address and rejects external redirects',async t=>{
+ const f=await fixture(t),discordId='123456789012345678';await f.db.prepare('UPDATE users SET discord_id=? WHERE id=?').run(discordId,'buyer');
+ const original=globalThis.fetch;globalThis.fetch=async(url,options)=>{if(String(url)==='https://discord.com/api/v10/oauth2/token')return new Response(JSON.stringify({access_token:'oauth-fixture'}),{status:200,headers:{'Content-Type':'application/json'}});if(String(url)==='https://discord.com/api/v10/users/@me')return new Response(JSON.stringify({id:discordId}),{status:200,headers:{'Content-Type':'application/json'}});return original(url,options);};t.after(()=>{globalThis.fetch=original;});
+ const target='/c/our-community?page=account';
+ const begin=await fetch(f.base+'/auth/discord/delete-confirm?return_to='+encodeURIComponent(target),{redirect:'manual',headers:{Cookie:'rookrift_session=buyer'}}),state=new URL(begin.headers.get('Location')).searchParams.get('state');
+ assert.ok(begin.headers.getSetCookie().some(cookie=>cookie.startsWith('rookrift_delete_return=')&&cookie.includes(encodeURIComponent(target))));
+ const success=await fetch(f.base+'/auth/discord/callback?state='+state+'&code=fixture',{redirect:'manual',headers:{Cookie:'rookrift_session=buyer; rookrift_oauth_delete='+state+'; rookrift_delete_return='+encodeURIComponent(target)}});assert.equal(success.status,302);assert.equal(success.headers.get('Location'),f.env.APP_URL+target);
+ assert.equal((await f.db.prepare("SELECT count(*) AS total FROM workspaces WHERE owner_id='buyer'").get()).total,0);
+ const again=await fetch(f.base+'/auth/discord/delete-confirm?return_to=https://example.com',{redirect:'manual',headers:{Cookie:'rookrift_session=buyer'}}),fresh=new URL(again.headers.get('Location')).searchParams.get('state');
+ const safe=await fetch(f.base+'/auth/discord/callback?state='+fresh+'&code=fixture',{redirect:'manual',headers:{Cookie:'rookrift_session=buyer; rookrift_oauth_delete='+fresh+'; rookrift_delete_return='+encodeURIComponent('https://example.com')}});assert.equal(safe.headers.get('Location'),f.env.APP_URL+'/dashboard?account=delete-verified');
+});
+
 async function checkoutFixture(f,workspace,buyer,{uncertain=false}={}){
  const id=randomUUID(),product=randomUUID();let started,release;
  const entered=new Promise(r=>{started=r;}),hold=new Promise(r=>{release=r;}),session={id:'cs_store',status:'open',url:'https://checkout.stripe.com/test'};

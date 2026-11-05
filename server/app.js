@@ -209,7 +209,7 @@ export function createApp({
     const params = new URLSearchParams({ client_id: env.DISCORD_CLIENT_ID, response_type: 'code', scope: 'identify guilds', redirect_uri: env.DISCORD_REDIRECT_URI, state });
     res.redirect(`https://discord.com/oauth2/authorize?${params}`);
   });
-  app.get('/auth/discord/delete-confirm',async(req,res)=>{if(!env.DISCORD_CLIENT_ID||!env.DISCORD_CLIENT_SECRET){res.status(503).send('Discord verification is not configured.');return;}const session=req.cookies.rookrift_session&&await db.prepare('SELECT s.*,EXISTS(SELECT 1 FROM platform_impersonations p WHERE p.session_token_hash=s.token_hash) AS impersonating FROM sessions s WHERE token_hash=? AND expires_at>?').get(hash(req.cookies.rookrift_session),Date.now());if(!session){res.redirect('/login?return_to=%2Fdashboard%3Faccount%3Ddeletion');return;}const state=await deletion.beginDiscord(session.user_id,session);res.cookie('rookrift_oauth_delete',state,{...cookieOptions,maxAge:600000});const params=new URLSearchParams({client_id:env.DISCORD_CLIENT_ID,response_type:'code',scope:'identify',redirect_uri:env.DISCORD_REDIRECT_URI,state});res.redirect('https://discord.com/oauth2/authorize?'+params);});
+  app.get('/auth/discord/delete-confirm',async(req,res)=>{if(!env.DISCORD_CLIENT_ID||!env.DISCORD_CLIENT_SECRET){res.status(503).send('Discord verification is not configured.');return;}const session=req.cookies.rookrift_session&&await db.prepare('SELECT s.*,EXISTS(SELECT 1 FROM platform_impersonations p WHERE p.session_token_hash=s.token_hash) AS impersonating FROM sessions s WHERE token_hash=? AND expires_at>?').get(hash(req.cookies.rookrift_session),Date.now());if(!session){res.redirect('/login?return_to=%2Fdashboard%3Faccount%3Ddeletion');return;}const state=await deletion.beginDiscord(session.user_id,session);res.cookie('rookrift_oauth_delete',state,{...cookieOptions,maxAge:600000});res.cookie('rookrift_delete_return',accountReturn(req.query.return_to)||'/dashboard?account=delete-verified',{...cookieOptions,maxAge:600000});const params=new URLSearchParams({client_id:env.DISCORD_CLIENT_ID,response_type:'code',scope:'identify',redirect_uri:env.DISCORD_REDIRECT_URI,state});res.redirect('https://discord.com/oauth2/authorize?'+params);});
   app.get('/auth/discord/callback', async (req, res) => {
     const state = typeof req.query.state === 'string' ? req.query.state : '';
     if(!state||(!req.cookies.rookrift_oauth&&!req.cookies.rookrift_oauth_link&&!req.cookies.rookrift_oauth_delete)||(req.cookies.rookrift_oauth!==state&&req.cookies.rookrift_oauth_link!==state&&req.cookies.rookrift_oauth_delete!==state)||typeof req.query.code!=='string'){res.status(400).send('Sign-in state is invalid or expired. Please sign in again.');return;}
@@ -239,7 +239,7 @@ export function createApp({
     }
     const token = await response.json(),
       user = await discordFetch('/users/@me', token.access_token);
-    if(deleteRow){const proof=await deletion.discordProof(deleteRow,user.id);res.clearCookie('rookrift_oauth_delete',cookieOptions).cookie('rookrift_delete_proof',proof,{...cookieOptions,path:'/api/account/deletion',maxAge:600000}).redirect(origin+'/dashboard?account=delete-verified');return;}
+    if(deleteRow){const proof=await deletion.discordProof(deleteRow,user.id);res.clearCookie('rookrift_oauth_delete',cookieOptions).clearCookie('rookrift_delete_return',cookieOptions).cookie('rookrift_delete_proof',proof,{...cookieOptions,path:'/api/account/deletion',maxAge:600000}).redirect(origin+(accountReturn(req.cookies.rookrift_delete_return)||'/dashboard?account=delete-verified'));return;}
     if (linkRow) {
       const localSession=req.cookies.rookrift_session&&await db.prepare('SELECT s.user_id FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.user_id=? AND s.expires_at>? AND u.deleting_at IS NULL AND NOT EXISTS(SELECT 1 FROM suspended_users x WHERE x.user_id=u.id) AND NOT EXISTS(SELECT 1 FROM platform_impersonations p WHERE p.session_token_hash=s.token_hash)').get(hash(req.cookies.rookrift_session),linkRow.user_id,Date.now());
       if(!localSession){res.status(401).send('Sign in to the original Rookrift account and reconnect Discord.');return;}
@@ -320,6 +320,7 @@ export function createApp({
   app.get('/api/public/communities/:slug/store',async(req,res)=>res.json(await store.publicPage(req.params.slug,req.visitor)));
   app.get('/api/public/communities/:slug/store/orders',async(req,res)=>res.json(await store.buyerOrders(req.params.slug,req.visitor)));
   app.get('/api/public/communities/:slug/member',async(req,res)=>res.json(await members.view(req.params.slug,req.visitor)));
+  app.patch('/api/public/communities/:slug/member',communityWrites,async(req,res)=>res.json(await members.updateProfile(req.params.slug,req.visitor,req.body)));
   app.post('/api/public/communities/:slug/member/link-code',communityWrites,async(req,res)=>res.json(await members.createLinkCode(req.params.slug,req.visitor,req.body?.game,req.body?.server_id)));
   app.post('/api/public/communities/:slug/member/game-accounts',communityWrites,async(req,res)=>res.json(await members.add(req.params.slug,req.visitor,req.body)));
   app.delete('/api/public/communities/:slug/member/game-accounts/:id',communityWrites,async(req,res)=>res.json(await members.remove(req.params.slug,req.visitor,req.params.id)));
@@ -609,7 +610,9 @@ export function createApp({
   app.post('/api/account/deletion/passkey-options',deletionLimit,async(req,res)=>res.json(await deletion.passkeyOptions(req.user.id,req.auth)));
   app.post('/api/account/deletion/passkey',deletionLimit,async(req,res)=>{const proof=await deletion.passkey(req.user.id,req.auth,req.body);res.cookie('rookrift_delete_proof',proof,proofCookie).json({verified:true});});
   app.delete('/api/account/deletion',deletionLimit,async(req,res)=>{await deletion.remove(req.user.id,req.auth,req.cookies.rookrift_delete_proof,req.body);res.clearCookie('rookrift_session',cookieOptions).clearCookie('rookrift_delete_proof',proofCookie).clearCookie('rookrift_oauth',cookieOptions).clearCookie('rookrift_return',cookieOptions).json({ok:true});});
-  app.get('/api/account', async (req, res) => res.json(await accountService.get(req.user.id)));
+  app.post('/api/account/logout',async(req,res)=>{await db.prepare('DELETE FROM sessions WHERE token_hash=?').run(req.auth.token_hash);res.clearCookie('rookrift_session',cookieOptions).json({ok:true});});
+  app.get('/api/account', async (req, res) => res.json(await accountService.get(req.user.id,{includeBilling:req.query.summary!=='1'})));
+  app.get('/api/account/billing',async(req,res)=>res.json(await accountService.billingHistory(req.user.id)));
   app.patch('/api/account/profile', async (req, res) => res.json(await accountService.updateProfile(req.user.id, req.body)));
   app.patch('/api/account/email', async (req, res) => res.json(await accountService.updateEmail(req.user.id, req.body)));
   app.post('/api/account/password', async (req, res) => res.json(await accountService.changePassword(req.user.id, req.body, req.auth.token_hash)));

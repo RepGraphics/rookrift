@@ -28,28 +28,29 @@ export function createAccount(db, vault, env, billing, providedEmail) {
   const security = async userId => await db.prepare('SELECT * FROM account_security WHERE user_id=?').get(userId);
   const ensureSecurity = async userId => { await db.prepare('INSERT INTO account_security(user_id,updated_at) VALUES(?,?) ON CONFLICT DO NOTHING').run(userId, Date.now()); return security(userId); };
   const passkeys = async userId => (await db.prepare('SELECT id,credential_id,label,created_at,last_used_at FROM account_passkeys WHERE user_id=? ORDER BY created_at').all(userId)).map(row => ({ ...row, credential_id: undefined }));
-  const get = async userId => {
+  const billingHistory=async userId=>billing.accountHistory(await db.prepare('SELECT id,name,plan,subscription_status,created_at,customer_id FROM workspaces WHERE owner_id=? AND closed_at IS NULL ORDER BY created_at').all(userId));
+  const get = async (userId,{includeBilling=true}={}) => {
     const user = await db.prepare('SELECT id,name,username,avatar,discord_id FROM users WHERE id=?').get(userId);
     const local = await db.prepare('SELECT email FROM local_accounts WHERE user_id=?').get(userId);
     const safe = await ensureSecurity(userId);
-    const workspaces = await db.prepare('SELECT id,name,plan,subscription_status,created_at,customer_id FROM workspaces WHERE owner_id=? ORDER BY created_at').all(userId);
-    return { profile: { ...presentUser(user), email: local?.email || null, discord_linked: Boolean(user.discord_id) }, security: { totp_enabled: Boolean(safe.totp_enabled), passkeys: await passkeys(userId) }, billing: await billing.accountHistory(workspaces) };
+    return { profile: { ...presentUser(user), email: local?.email || null, discord_linked: Boolean(user.discord_id) }, security: { totp_enabled: Boolean(safe.totp_enabled), passkeys: await passkeys(userId) }, ...(includeBilling?{billing:await billingHistory(userId)}:{}) };
   };
   const challenge = async (userId, kind, value) => { await db.prepare('DELETE FROM account_challenges WHERE user_id=? OR expires_at<?').run(userId, Date.now()); const id = randomUUID(); await db.prepare('INSERT INTO account_challenges VALUES(?,?,?,?,?)').run(id, userId, value, kind, Date.now() + 300000); return id; };
   const consumeChallenge = async (id, userId, kind) => { const row = await db.prepare('DELETE FROM account_challenges WHERE id=? AND user_id IS NOT DISTINCT FROM ? AND kind=? AND expires_at>? RETURNING challenge').get(id, userId, kind, Date.now()); if (!row) fail('This security challenge has expired. Try again.', 400); return row.challenge; };
   return {
     get,
+    billingHistory,
     async updateProfile(userId, input) {
       const name = String(input.name || '').trim(), username = String(input.username || '').trim().toLowerCase();
       if (name.length < 2 || name.length > 80 || !/^[a-z0-9_]{3,30}$/.test(username)) fail('Enter a name and a username using 3–30 letters, numbers, or underscores.');
       try { if(input.avatar===undefined)await db.prepare('UPDATE users SET name=?,username=? WHERE id=?').run(name,username,userId);else await db.prepare('UPDATE users SET name=?,username=?,avatar=? WHERE id=?').run(name, username, profileImage(input.avatar), userId); } catch (error) { if (error.code === '23505') fail('That username is already in use.', 409); throw error; }
-      return get(userId);
+      return get(userId,{includeBilling:false});
     },
     async updateEmail(userId, input) {
       const email = String(input.email || '').trim().toLowerCase(); if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) fail('Enter a valid email address.');
       const local = await db.prepare('SELECT password_hash FROM local_accounts WHERE user_id=?').get(userId); if (!local || !(await verifyPassword(input.password, local.password_hash))) fail('Your current password is incorrect.', 401);
       try { await db.prepare('UPDATE local_accounts SET email=? WHERE user_id=?').run(email, userId); } catch (error) { if (error.code === '23505') fail('That email address is already in use.', 409); throw error; }
-      return get(userId);
+      return get(userId,{includeBilling:false});
     },
     async changePassword(userId, input, sessionHash) {
       const local = await db.prepare('SELECT password_hash FROM local_accounts WHERE user_id=?').get(userId); if (!local || !(await verifyPassword(input.current_password, local.password_hash))) fail('Your current password is incorrect.', 401);
@@ -63,9 +64,9 @@ export function createAccount(db, vault, env, billing, providedEmail) {
       const email = (await db.prepare('SELECT email FROM local_accounts WHERE user_id=?').get(userId))?.email || userId;
       return { secret, otpauth_url: `otpauth://totp/Rookrift:${encodeURIComponent(email)}?secret=${secret}&issuer=Rookrift` };
     },
-    async confirmTotp(userId, code) { const row = await security(userId); if (!row?.totp_secret || !totpValid(row.totp_secret, code)) fail('That authenticator code is invalid.', 400); await db.prepare('UPDATE account_security SET totp_enabled=1,updated_at=? WHERE user_id=?').run(Date.now(), userId); return get(userId); },
+    async confirmTotp(userId, code) { const row = await security(userId); if (!row?.totp_secret || !totpValid(row.totp_secret, code)) fail('That authenticator code is invalid.', 400); await db.prepare('UPDATE account_security SET totp_enabled=1,updated_at=? WHERE user_id=?').run(Date.now(), userId); return get(userId,{includeBilling:false}); },
     async verifyTotp(userId, code) { const row = await security(userId); return !row?.totp_enabled || Boolean(row.totp_secret && totpValid(row.totp_secret, code)); },
-    async disableTotp(userId, input) { const row = await security(userId); if (!row?.totp_enabled || !totpValid(row.totp_secret, input.code)) fail('That authenticator code is invalid.', 400); await db.prepare('UPDATE account_security SET totp_enabled=0,totp_secret=NULL,updated_at=? WHERE user_id=?').run(Date.now(), userId); return get(userId); },
+    async disableTotp(userId, input) { const row = await security(userId); if (!row?.totp_enabled || !totpValid(row.totp_secret, input.code)) fail('That authenticator code is invalid.', 400); await db.prepare('UPDATE account_security SET totp_enabled=0,totp_secret=NULL,updated_at=? WHERE user_id=?').run(Date.now(), userId); return get(userId,{includeBilling:false}); },
     async registrationOptions(userId) {
       const existing = await db.prepare('SELECT credential_id FROM account_passkeys WHERE user_id=?').all(userId);
       const user = await db.prepare('SELECT username,name FROM users WHERE id=?').get(userId);
@@ -78,7 +79,7 @@ export function createAccount(db, vault, env, billing, providedEmail) {
       if (!verification.verified || !verification.registrationInfo) fail('Passkey registration was not verified.', 400);
       const info = verification.registrationInfo;
       await db.prepare('INSERT INTO account_passkeys VALUES(?,?,?,?,?,?,?,?,?)').run(randomUUID(), userId, info.credential.id, Buffer.from(info.credential.publicKey), info.credential.counter, JSON.stringify(input.response.response.transports || []), String(input.label || 'Passkey').trim().slice(0, 80) || 'Passkey', Date.now(), null);
-      return get(userId);
+      return get(userId,{includeBilling:false});
     },
     async authenticationOptions() {
       const options = await generateAuthenticationOptions({ rpID, userVerification: 'required', allowCredentials: [] });
@@ -94,7 +95,7 @@ export function createAccount(db, vault, env, billing, providedEmail) {
       await db.prepare('UPDATE account_passkeys SET counter=?,last_used_at=? WHERE id=?').run(verification.authenticationInfo.newCounter, Date.now(), credential.id);
       return { user_id: credential.user_id };
     },
-    async removePasskey(userId, id) { if (!(await db.prepare('DELETE FROM account_passkeys WHERE id=? AND user_id=?').run(id, userId)).changes) fail('Passkey not found.', 404); return get(userId); },
+    async removePasskey(userId, id) { if (!(await db.prepare('DELETE FROM account_passkeys WHERE id=? AND user_id=?').run(id, userId)).changes) fail('Passkey not found.', 404); return get(userId,{includeBilling:false}); },
     async requestReset(email) {
       const local = await db.prepare('SELECT a.user_id FROM local_accounts a JOIN users u ON u.id=a.user_id WHERE a.email=? AND u.deleting_at IS NULL AND NOT EXISTS(SELECT 1 FROM suspended_users s WHERE s.user_id=u.id)').get(String(email || '').trim().toLowerCase());
       if (!local) return { ok: true };

@@ -4,18 +4,18 @@ Release 0.11 connects the public member flow to native ARK chat monitoring. It f
 
 ## Player flow
 
-1. Sign in to the community page and open **Game accounts**.
+1. Sign in to the community page and open **My account ? Game accounts**.
 2. Join one of its published, plan-entitled ARK servers. Select that same world and generate a link code.
 3. Send the complete `/link RR-...` command in **global player chat**. Do not enter it into the server console, a private message or a Discord channel.
 4. Keep the community page open. It checks progress every three seconds and shows the linked identifier after verification. The confirmation is on the website; no in-game reply is required.
 
-Codes expire after ten minutes, are bound to the selected server and game, and are stored as hashes. Generating a replacement invalidates the previous code. Only one successful verification consumes a code, even when a message is observed more than once. A verified game identifier cannot be claimed by a different member in the same workspace/game. Members can remove their own saved account. Manual identifiers remain clearly marked self-reported.
+Codes expire after ten minutes, are bound to the selected server and game, and are stored as hashes. Generating a replacement invalidates the previous code. Only one successful verification consumes a code, even when a message is observed more than once. A verified game identifier cannot be claimed by a different member in the same workspace/game. Members can remove their own saved account. Existing manual identifiers remain clearly marked self-reported and removable; new connections use the single in-game verification form.
 
 ## Native monitoring and diagnostics
 
 Rookrift polls `GetChat` through the server's configured RCON connection while a code is active. No panel connection or log-agent container is required. The read shares the normal per-server command guard; busy verification records wait briefly rather than losing an already-read chat command. The server still needs to be connected and entitled by its workspace plan.
 
-Open **Community hub → Account linking** for per-server native-chat and console status. An idle state is expected when no member has an active code. An unavailable native read means you should check RCON, the running game and firewall. An unsupported `GetChat` needs a compatible server extension instead. Another tool reading the game's chat queue may prevent Rookrift from seeing the same messages on some server setups.
+Open **Community hub → Linking diagnostics** for per-server native-chat and console status. An idle state is expected when no member has an active code. An unavailable native read means you should check RCON, the running game and firewall. An unsupported `GetChat` needs a compatible server extension instead. Another tool reading the game's chat queue may prevent Rookrift from seeing the same messages on some server setups.
 
 For native ARK output, Rookrift accepts a complete `AccountName (CharacterName): /link CODE` record (or an account-name-only variant), then refreshes `ListPlayers`. It matches the full outer sender against **all** currently reported account names. Quoted commands, nested `[chat]` fragments, duplicate names and ambiguous account/character prefixes cannot verify a link. If your server uses an unsupported log/chat format, a player has disconnected, or names collide, the code remains unverified. Use unique platform account names and retry with a fresh code.
 
@@ -31,7 +31,7 @@ References: [Pterodactyl WebSocket lifecycle](https://github.com/pterodactyl/pan
 
 ## Trusted server extension
 
-An owner/administrator can issue a per-server token under **Account linking → Advanced server extension or log bridge**. The raw token is shown once and its hash is stored. Issuing another revokes the previous token. Keep it on the game host.
+An owner/administrator can issue a per-server token under **Linking diagnostics → Advanced server extension or log bridge**. The raw token is shown once and its hash is stored. Issuing another revokes the previous token. Keep it on the game host.
 
 An authenticated extension can POST to `/api/link-events` with `Authorization: Bearer <server-token>` and a JSON body:
 

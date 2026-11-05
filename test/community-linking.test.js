@@ -31,6 +31,32 @@ async function fixture(t){
 const user={id:'alice'};
 const codeFor=(f,index=0,who=user)=>f.members.createLinkCode('link-test',who,f.servers[index].game,f.servers[index].id);
 
+test('community nickname updates require a session and CSRF and remain scoped to the member',async t=>{
+ const f=await fixture(t),path='/public/communities/link-test/member';
+ assert.equal((await f.request(path,'PATCH',{display_name:'River'},null)).status,401);
+ assert.equal((await f.request(path,'PATCH',{display_name:'River'},'alice',false)).status,403);
+ assert.equal((await f.request(path,'PATCH',{display_name:'x'.repeat(81)})).status,400);
+ assert.equal((await f.request(path,'PATCH',{display_name:'River',user_id:'bob'})).status,400);
+ assert.equal((await f.request(path,'PATCH',{display_name:'  River Scout  '})).body.display_name,'River Scout');
+ assert.equal((await f.request('/public/communities/link-test')).body.viewer.display_name,'River Scout');
+ assert.equal((await f.request('/public/communities/link-test','GET',null,'bob')).body.viewer.display_name,'');
+ assert.equal((await f.request('/public/communities/link-test','GET',null,null)).body.viewer,null);
+ assert.equal((await f.request(path,'PATCH',{display_name:''})).body.display_name,'');
+ assert.equal((await f.db.prepare("SELECT count(*) AS total FROM workspaces WHERE owner_id='alice'").get()).total,0);
+});
+
+test('community-only users can manage a profile and sign out without provisioning a workspace',async t=>{
+ const f=await fixture(t);
+ const summary=await f.request('/account?summary=1');assert.equal(summary.status,200);assert.equal(summary.body.profile.id,'alice');assert.equal(summary.body.billing,undefined);
+ const profile=await f.request('/account/profile','PATCH',{name:'Alice River',username:'alice_river'});assert.equal(profile.status,200);assert.equal(profile.body.profile.name,'Alice River');
+ assert.equal((await f.request('/account/logout','POST',{},'alice',false)).status,403);
+ assert.equal((await f.request('/account/logout','POST',{})).status,200);
+ assert.equal((await f.request('/account?summary=1')).status,401);
+ assert.equal((await f.request('/public/communities/link-test')).body.viewer,null);
+ assert.equal((await f.request('/account?summary=1','GET',null,'bob')).status,200);
+ assert.equal((await f.db.prepare("SELECT count(*) AS total FROM workspaces WHERE owner_id IN ('alice','bob')").get()).total,0);
+});
+
 test('native ARK account/character chat records reject nested commands and ambiguous sender names',()=>{
  const code='RR-0123456789ABCDEF';
  for(const prefix of ['Platform Name (Survivor)','Platform Name ("Survivor")','Platform Name'])assert.equal(chatLinkPlayer(chatLinkRecord(prefix+': /link '+code),['Platform Name, EOS-123']).identifier,'EOS-123');

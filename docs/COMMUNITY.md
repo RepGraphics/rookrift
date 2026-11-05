@@ -64,3 +64,7 @@ Under **Pages & sections**, add up to six pages and twelve sections per page. Te
 **Save draft** stores the design privately. **Publish design** saves and publishes the current draft; public visitors receive only the published design. **Restore published design** discards unsaved/draft layout edits in favour of the last published layout. Undo keeps up to 25 editor changes in memory. Page navigation uses `?page=your-page-address`; built-in server/news/event/rule/store/application addresses are reserved. News and event publications still follow their own settings.
 
 Existing published designs retain their pages and content, with default appearance settings added when edited. Migration 8 added the original site design/store tables; migration 16 adds account-link provenance. Back up PostgreSQL before upgrading. The default hub remains live until a custom design is published.
+
+## Member account management (0.14)
+
+Members open the avatar menu, then Profile, Game accounts, Appearance or Sign-in & security. Profile pictures/name and a community nickname are editable on the public site. Sign out revokes the current session and keeps the visitor on that community. The Game accounts section lives in this account area; legacy `?page=account` links still work. Owners inspect server connectivity under **Community hub ? Linking diagnostics**. See [the account and navigation guide](ACCOUNT-EXPERIENCE.md).

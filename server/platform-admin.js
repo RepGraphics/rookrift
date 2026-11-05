@@ -27,6 +27,8 @@ export function createPlatformAdmin(db, community, vault, env = process.env) {
     })));
     const stored=await db.prepare('SELECT key FROM platform_settings').all();
     const keys=new Set(stored.map(row=>row.key));
+    const storedProvider=await db.prepare("SELECT value FROM platform_settings WHERE key='platform_billing_provider'").get();
+    const provider=storedProvider?vault.decrypt(storedProvider.value):env.PLATFORM_BILLING_PROVIDER||'stripe';
     return { user:presentUser(user),users:users.map(presentUser), workspaces:details, settings: {
       discord_client_id: {configured:Boolean(env.DISCORD_CLIENT_ID||keys.has('discord_client_id'))},
       discord_client_secret: {configured:Boolean(env.DISCORD_CLIENT_SECRET||keys.has('discord_client_secret'))},
@@ -42,7 +44,7 @@ export function createPlatformAdmin(db, community, vault, env = process.env) {
       ,paypal_webhook_id: {configured:Boolean(env.PAYPAL_WEBHOOK_ID||keys.has('paypal_webhook_id'))}
       ,paypal_tribe_plan_id: {configured:Boolean(env.PAYPAL_TRIBE_PLAN_ID||keys.has('paypal_tribe_plan_id'))}
       ,paypal_cluster_plan_id: {configured:Boolean(env.PAYPAL_CLUSTER_PLAN_ID||keys.has('paypal_cluster_plan_id'))}
-      ,platform_billing_provider: {value:env.PLATFORM_BILLING_PROVIDER||'stripe'}
+      ,platform_billing_provider: {value:provider,active_value:env.PLATFORM_BILLING_PROVIDER||'stripe'}
       ,paypal_ipn_tribe_url: {configured:Boolean(env.PAYPAL_IPN_TRIBE_URL||keys.has('paypal_ipn_tribe_url'))}
       ,paypal_ipn_cluster_url: {configured:Boolean(env.PAYPAL_IPN_CLUSTER_URL||keys.has('paypal_ipn_cluster_url'))}
       ,tebex_tribe_url: {configured:Boolean(env.TEBEX_TRIBE_URL||keys.has('tebex_tribe_url'))}

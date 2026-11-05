@@ -143,3 +143,7 @@ This update reuses the existing user picture column and schema 18. Profile uploa
 ## Release 0.13.2 Discord workspace settings
 
 No migration is required. Workspace Settings now supports reconnecting email-based users to Discord with the required server-list scope and encrypted OAuth token. Previously linked regular owners should reconnect once through the settings button. Platform roots can validate links through the bot without a personal Discord authorization. The bot must still be online, present in the guild and permitted to send in the selected channel. Save failures show inline and do not partially update the workspace. See [Discord connection setup](DISCORD-CONNECTION.md).
+
+## Release 0.14 account and settings navigation
+
+No migration or new environment variables are required. Rebuild the application image and restart the app container. Community account changes and logout use the personal API without provisioning workspaces. Profile/security requests load independently of invoice providers. Platform settings now save by integration category, with one selected subscription provider visible. SMTP remains live-applied; Discord/payment credential changes still require a restart and environment variables override stored credentials. See [account experience](ACCOUNT-EXPERIENCE.md).

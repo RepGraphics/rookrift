@@ -50,6 +50,13 @@ export function createCommunityMembers(db,{service}={}){
   }
   return{
     async view(slug,user){if(!user)fail('Sign in to manage linked game accounts.',401);return list(await community(slug),user);},
+    async updateProfile(slug,user,input){
+      if(!user)fail('Sign in to manage your community profile.',401);
+      const value=z.object({display_name:z.string().trim().max(80)}).strict().parse(input),site=await community(slug);
+      await ensure(site.workspace_id,user);
+      await db.prepare('UPDATE community_members SET display_name=?,updated_at=? WHERE workspace_id=? AND user_id=?').run(value.display_name,Date.now(),site.workspace_id,user.id);
+      return {display_name:value.display_name};
+    },
     async add(slug,user,input){
       if(!user)fail('Sign in to link a game account.',401);const value=accountInput.parse(input),site=await community(slug),identifier=deliveryIdentifier(value.identifier,'game');
       return db.withWorkspaceLock(site.workspace_id,async()=>{await ensure(site.workspace_id,user);if((await db.prepare('SELECT count(*) AS n FROM community_game_accounts WHERE workspace_id=? AND user_id=?').get(site.workspace_id,user.id)).n>=20)fail('You can save up to 20 game accounts.',409);try{await db.prepare('INSERT INTO community_game_accounts(id,workspace_id,user_id,game,identifier,label,created_at) VALUES(?,?,?,?,?,?,?)').run(randomUUID(),site.workspace_id,user.id,value.game,identifier,value.label,Date.now());}catch(e){if(e.code==='23505')fail('That game account is already saved.',409);throw e;}return list(site,user);});
