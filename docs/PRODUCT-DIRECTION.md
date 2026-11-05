@@ -2,7 +2,7 @@
 
 Updated 5 November 2026. Product reference: GameServerApp. Aim: an affordable ARK-first management service that covers a community owner's daily work in one dashboard and Discord bot. Build an independent Rookrift experience around those workflows.
 
-Version 0.9 adds separate Join Requests and Staff Applications, a [multi-page site editor](COMMUNITY.md), a [Stripe Connect storefront](STOREFRONT.md) with verified one-time payments and staff delivery records, and [Nitrado/Pelican hosting connectors](HOSTING-PROVIDERS.md). It builds on local accounts/platform administration, workflows, configuration deployment, scoped teams, PostgreSQL and Redis. Scout remains free, Tribe GBP 3.99/month and Cluster GBP 9.99/month. Store catalog allowances are 5/25/100 products; workflows retain 2/10/50 allowances. Stripe merchant payments remain separate from Rookrift subscription billing.
+Version 0.10 adds [multiple workspaces](WORKSPACES.md), image/category catalogs, wider sorting and ordered server-command/Discord-role purchase actions to the [Stripe Connect storefront](STOREFRONT.md). It builds on separate Join Requests and Staff Applications, a [multi-page site editor](COMMUNITY.md), [Nitrado/Pelican connectors](HOSTING-PROVIDERS.md), local accounts/platform administration, workflows, configuration deployment, scoped teams, PostgreSQL and Redis. Scout remains free, Tribe GBP 3.99/month and Cluster GBP 9.99/month per workspace. Store catalog allowances are 5/25/100 products; workflows retain 2/10/50 allowances. Merchant payments remain separate from Rookrift subscription billing.
 
 ## What to learn from GameServerApp
 
@@ -16,12 +16,12 @@ GSA distinguishes RconConnect from DediConnect. Its documentation says RconConne
 | --- | --- | --- |
 | Monitor a cluster | RCON snapshots, player counts, health history, incidents, Discord alerts, opt-in public server status | Persistent player sessions and reliable join/leave events |
 | Moderate players | Kick/ban/unban history, profiles and private server-scoped staff notes, unified cluster list, opt-in exact-ID community ban lookup | Appeal tracking and imported ban-list reconciliation |
-| Share administration | Discord-bound invitations, dashboard roles and server scopes, staff audit; permission-gated Discord commands | Further game integrations for shared administration |
+| Share administration | Multiple isolated workspaces with game focus, separate subscriptions/public pages, Discord-bound invitations, dashboard roles/server scopes and staff audit | Further game integrations for shared administration |
 | Run routine work | Simple schedules plus persistent multi-step workflows, local calendar/incident/webhook triggers, restart countdowns, cooldowns, cancellation and step history | Verified in-game events, achievements, richer conditions and additional game actions |
 | Control the host | Pterodactyl/Pelican process controls/resources, manual/scheduled backups and config deployment; Nitrado state/power controls | Verified game-world restore workflow, retention policies, additional host adapters |
 | Maintain game content | Separate ASE/ASA adapters, versioned INI patches, change previews, stopped-server file deployment and encrypted guarded rollback | Full array/config schema support, mod/update detection and installation, optional host agent |
 | Serve the community | Multi-page site editor with themes/draft publishing, rules/news/events/RSVPs, independently toggled join/staff forms and review, Discord links/counts | Verified whitelist execution, forums, two-way chat where supported |
-| Fund the community | Separate Stripe Connect one-time storefront, verified merchant checkout, buyer history, staff delivery records and refund/dispute review | Automatic game delivery, recurring supporter subscriptions, role/perk expiry and automatic revocations |
+| Fund the community | Stripe Connect one-time storefront, product images/categories, searchable catalog/orders, verified checkout, snapshotted server commands and Discord role grants, staff delivery and refund/dispute review | Tested inventory-verifying plugins, recurring supporter subscriptions, role/perk expiry and automatic revocations |
 | Add another game | DayZ placeholder, disabled | Tested BattlEye transport and game capability matrix after the ARK workflows are proven |
 
 GSA references: [player tools](https://www.gameserverapp.com/feature/admin-tools), [team permissions](https://www.gameserverapp.com/feature/team-collaboration), [task automation](https://www.gameserverapp.com/feature/automations-tasks), [server management](https://www.gameserverapp.com/feature/game-server-manager), [community tools](https://www.gameserverapp.com/feature/community-tools), [monetization](https://www.gameserverapp.com/feature/monetization). These describe GSA's advertised capabilities; they are not claims that every feature works with every game or provider.
@@ -60,7 +60,7 @@ Version 0.8 adds exact backup-completion verification with notifications in arch
 
 ### 4. Add the player-facing community layer
 
-Version 0.7 ships a public cluster/status hub, rules/news, events with RSVPs, join/staff applications and staff review. Version 0.9 adds connected merchant accounts, order/payment reconciliation, stable checkout reservations, manual delivery records and refund/dispute review. Next add tested game delivery plugins, offline-player jobs and perk expiry/revocation. In-game delivery and chat need tested game/plugin capabilities; unavailable actions should not be offered as working controls. Keep this distinct from the owner's platform subscription.
+Version 0.7 ships a public cluster/status hub, rules/news, events with RSVPs, join/staff applications and staff review. Version 0.9 adds connected merchant accounts and payment reconciliation. Version 0.10 adds product categories/images and durable purchase actions, including owner-configured RCON commands and Discord role grants. Unsent commands wait for an available server; uncertain commands stop for manual review and are never replayed automatically. Next add tested inventory-verifying plugins, verified offline-player delivery and perk expiry/revocation. Game commands still require the right game/plugin and recipient type. Keep merchant purchases distinct from the owner's platform subscription.
 
 ### 5. Broaden only after ARK retention improves
 

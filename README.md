@@ -6,7 +6,7 @@ This is a runnable MVP starter, with working backend integrations that require y
 
 Production storage uses **PostgreSQL 18**, with optional **Redis 8** chart caching. For your deployment, follow the [Dokploy setup and SQLite migration guide](docs/DOKPLOY.md). Existing SQLite data needs an explicit import with its original encryption key before starting the new backend.
 
-The product direction is an affordable ARK-first service covering daily player administration, automation, hosting, team access and community tools. Release **0.9** adds independently switchable Join Requests and Staff Applications, a multi-page community site editor with drafts/live preview/publishing, a separate Stripe Connect storefront with verified orders and staff delivery records, plus Nitrado and Pelican hosting connectors. It preserves local accounts and platform administration, multi-step workflows and versioned INI deployment/rollback. Read the [community guide](docs/COMMUNITY.md), [storefront setup](docs/STOREFRONT.md), [provider capability matrix](docs/HOSTING-PROVIDERS.md), [workflows](docs/WORKFLOWS.md), [configuration](docs/CONFIGURATION.md), and [remaining product gaps](docs/PRODUCT-DIRECTION.md).
+The product direction is an affordable ARK-first service covering daily player administration, automation, hosting, team access and community tools. Release **0.10** adds separate game-focused workspaces, product images/categories, wider sorting and durable purchase actions for server commands and Discord role rewards. It builds on the community site editor, independent join/staff applications, Stripe Connect storefront, Nitrado/Pelican connectors, local accounts/platform administration, workflows and versioned INI deployment. Read the [workspace guide](docs/WORKSPACES.md), [community guide](docs/COMMUNITY.md), [storefront setup](docs/STOREFRONT.md), [provider matrix](docs/HOSTING-PROVIDERS.md), and [remaining gaps](docs/PRODUCT-DIRECTION.md).
 
 ## Try the dashboard
 
@@ -27,7 +27,7 @@ The homepage is `/`, sign-in is `/login`, registration is `/register`, and the a
 
 - Public marketing homepage with product illustrations, keyboard-accessible feature tabs, current plan pricing, FAQs, mobile navigation and dedicated account entry routes. Dashboard code loads separately from the public page.
 - Responsive React dashboard with readable server cards, player history, RCON availability, activity filters, server search, and settings. Neutral light mode and a muted dark mode share a persistent appearance toggle in the header.
-- Separate per-server ASA/ASE selection; a workspace can manage both games using shared slots.
+- Up to ten owned workspaces with separate servers, public community pages, teams, stores and subscriptions. Choose mixed ARK, Ascended, Evolved or DayZ planning focus; DayZ connections remain unavailable.
 - Server groups, fleet filters/sorting, and connection editing with optional encrypted password replacement.
 - Source RCON: connection checks, player lists, `SaveWorld`, and announcements.
 - Confirmed bulk connection checks, world saves, and announcements with per-server success/failure results.
@@ -45,9 +45,10 @@ The homepage is `/`, sign-in is `/login`, registration is `/register`, and the a
 - Pterodactyl and Pelican connections for process resources, power, backups and configuration; Nitrado service connections for state and power, with backend capability checks.
 - Independent Join Requests and Staff Applications, separate questions/review queues, and public menu visibility tied to each toggle.
 - Community site editor with four themes, up to six pages, reordered text/images/callouts/live server/news/event sections, private drafts and explicit publication.
-- Separate Stripe Connect community stores: catalog, hosted checkout, verified payments, immutable purchase terms, buyer history, refunds/disputes and staff delivery records.
+- Stripe Connect stores with HTTPS product images, categories, display/name/date/price sorting, verified payments and immutable order snapshots. Owner-configured purchase actions run ordered server commands and Discord role awards, with durable progress, retryable preflight failures and manual review for uncertain game commands.
 - Internal server notes and configurable consecutive-failure thresholds for outage incidents.
 - Email/password account creation and sign-in plus Discord OAuth, with state validation and secure, revocable sessions.
+- Personal account settings at `/dashboard` → **My account**: profile image/name/username, email and password changes, password reset email, Discord linking, authenticator-app 2FA, passkeys, and owner subscription invoice history. Configure `SMTP_*` to enable password-reset email delivery.
 - Discord slash commands with autocomplete, guild-only execution, Manage Server checks, workspace ownership, and private responses.
 - Stripe Checkout, customer portal, verified/idempotent webhooks, current-state reconciliation, and server-side entitlements.
 - Pooled asynchronous PostgreSQL persistence, transactional quota checks, batched player snapshots, optional Redis chart caching with database fallback, and a read-only SQLite importer.
@@ -126,6 +127,16 @@ Save the endpoint's signing secret as `STRIPE_WEBHOOK_SECRET`. For local testing
 
 ```text
 stripe listen --forward-to localhost:3000/api/webhooks/stripe
+
+For the Docker development stack, set `STRIPE_CLI_API_KEY` in `.env`, then start the
+two forwarding services with `docker compose --profile stripe up -d`. The
+`stripe-cli` service forwards subscription events to `/api/webhooks/stripe`, while
+`stripe-connect-cli` forwards connected-account store events to
+`/api/webhooks/community-stripe`. Copy each listener's `whsec_...` value from
+`docker compose --profile stripe logs stripe-cli` and
+`docker compose --profile stripe logs stripe-connect-cli` into
+`STRIPE_WEBHOOK_SECRET` and `STRIPE_CONNECT_WEBHOOK_SECRET`, respectively, then
+restart `rookrift`. Use Stripe test-mode secret keys and test price IDs locally.
 ```
 
 The code uses the modern invoice `parent.subscription_details.subscription` field, with a legacy fallback. Use a webhook API version compatible with the installed Stripe SDK and test your exact account configuration. Entitlements come from the configured **price IDs and current Stripe subscription state**, never from a successful redirect or client-supplied plan. Retries are deduplicated. An active process reconciles known subscriptions about every 15 monitoring cycles, so missed webhooks can recover.
@@ -183,14 +194,34 @@ npm run build:demo
 npm run test:docker
 ```
 
-The 135 backend tests run against real PostgreSQL and Redis services. `npm run test:unit` starts temporary Docker fixtures automatically, or uses `TEST_DATABASE_URL` and `TEST_REDIS_URL`. Each fixture uses its own PostgreSQL schema. Coverage includes workflow sequencing/interruption/cancellation, webhook deduplication, restart evidence, INI patch privacy/deployment/rollback, community privacy/permissions, application and RSVP concurrency, calendar DST behavior, PostgreSQL upgrades, transaction rollback/isolation, quotas, runtime leases, SQLite import preservation/rollback, Redis expiry/failure fallback, and existing team, billing, RCON and operations behavior. The dashboard, workflows, configuration and community hub have 62 interaction tests. `node scripts/check-contrast.mjs` verifies 15 text/background colour pairs per theme against a minimum 4.5:1 ratio. Discord, Stripe and game-provider calls use fixtures and still need real integration testing.
+The backend tests run against real PostgreSQL and Redis services. `npm run test:unit` starts temporary Docker fixtures automatically, or uses `TEST_DATABASE_URL` and `TEST_REDIS_URL`. Each fixture uses its own PostgreSQL schema. Coverage includes workflow sequencing/interruption/cancellation, webhook deduplication, restart evidence, INI patch privacy/deployment/rollback, community privacy/permissions, application and RSVP concurrency, calendar DST behavior, PostgreSQL upgrades, transaction rollback/isolation, quotas, runtime leases, SQLite import preservation/rollback, Redis expiry/failure fallback, and existing team, billing, RCON and operations behavior. The dashboard, workspaces, catalog, purchase actions, workflows, configuration and community hub have interaction tests. `node scripts/check-contrast.mjs` verifies 15 text/background colour pairs per theme against a minimum 4.5:1 ratio. Discord, Stripe and game-provider calls use fixtures and still need real integration testing.
 
 Browser screenshot QA remains unavailable because the browser access host is unavailable. Desktop/mobile layout needs a visual review before public launch. The Docker image is built and smoke-tested with authenticated API checks; external Discord, Stripe and game-provider behavior still requires live integration testing.
 
 ## Scope and next steps
 
-Process start/stop/restart and file backup creation/status use a connected Pterodactyl panel. Other hosts, a native host agent, backup restoration/download/deletion, mod installation, remote INI editing, cross-server chat, event-driven multi-step automations, a supporter shop, and DayZ remain future work. Dashboard team seats and persistent player profiles are implemented. RCON `SaveWorld` writes the current game save; it is separate from provider file backups. Moderation records submitted commands and still requires live game/provider verification.
+Process controls use a supported host connector; backups and configuration depend on its capabilities. A native host agent, world-backup restoration, mod installation, inventory-verifying delivery plugins, recurring supporter subscriptions, perk expiry/revocation and DayZ remain future work. Configured purchase commands need testing against the actual game/plugin and player identifier. RCON acknowledgment is not independent proof that items reached the inventory. RCON SaveWorld is separate from provider file backups.
 
-Automations are interval-based, not cron calendars. They are claimed before running, run at most once per claim, and skip missed intervals after downtime. Monitoring is sequential per minute cycle, so large or unreachable fleets take longer. Events older than the plan retention period are pruned by the background process. Demo data is browser-local and persists until reset.
+Simple automations support intervals and timezone-aware weekly schedules; workflows add bounded multi-step sequences. They are claimed before running, run at most once per claim, and skip missed intervals after downtime. Monitoring is sequential per minute cycle, so large or unreachable fleets take longer. Events older than the plan retention period are pruned by the background process. Demo data is browser-local and persists until reset.
 
 See [OPERATIONS.md](docs/OPERATIONS.md) for v0.3 reliability, moderation, hosting setup and upgrade instructions; [FEATURES.md](docs/FEATURES.md) for fleet basics; [LAUNCH.md](docs/LAUNCH.md) for a route to a paid pilot; and [ARCHITECTURE.md](docs/ARCHITECTURE.md) for system details.
+## Server-chat account linking
+
+Members can generate a short-lived link code from a community page and enter
+`/link RR-XXXXXXXXXX` in supported server chat. Rookrift accepts matching log
+lines through the optional `link-agent`, refreshes the server player list over
+RCON, and only links the identifier when the chat name matches a currently
+connected player.
+
+To configure a server, call `POST /api/servers/{server_id}/link-agent` while
+authenticated as a workspace owner or administrator. Keep the returned token
+secret. For Docker, set `LINK_LOG_HOST_PATH`, `LINK_LOG_PATH`,
+`ROOKRIFT_LINK_TOKEN`, and `ROOKRIFT_SERVER_ID` in `.env`, then run:
+
+```powershell
+docker compose --profile link-agent up -d --build link-agent
+```
+
+The agent is deliberately an opt-in log bridge because Rookrift cannot read
+logs on a separate game host without a mounted file or a server/plugin
+integration. DayZ remains unavailable until its server adapter supports RCON.

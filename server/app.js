@@ -1,8 +1,11 @@
+import {createPurchaseDelivery,createDiscordRewards} from './purchase-delivery.js';
+import {createWorkspace,ensurePersonalWorkspace} from './workspaces.js';
 import {accountReturn} from '../shared/navigation.js';
 import { createMetricsCache } from './cache.js';
 import { createCommunity } from './community.js';
 import {createCommunityDesign} from './community-design.js';
 import {createCommunityStore} from './community-store.js';
+import {createCommunityMembers} from './community-members.js';
 import {createWorkflows} from './workflows.js';
 import {createConfigLibrary} from './config-library.js';
 import {sendAlert} from './bot.js';
@@ -27,6 +30,7 @@ import { createOperations } from './operations.js';
 import { maintenanceState } from './operations-state.js';
 import { createBanDirectory } from './ban-directory.js';
 import { createPlatformAdmin } from './platform-admin.js';
+import { createAccount } from './account.js';
 const discordFetch = async (path, token) => {
   const response = await fetch(`https://discord.com/api/v10${path}`, {
     headers: {
@@ -45,7 +49,9 @@ export function createApp({
   vault,
   service,
   billing,
+  paypal,
   store:providedStore,
+  rewards:providedRewards,
   operations: providedOperations,
   workflows:providedWorkflows,
   configurations:providedConfigurations,
@@ -59,8 +65,10 @@ export function createApp({
   service.setBackupHandler?.((workspace,server)=>operations.hostingAction(workspace,server.id,{action:'backup',confirmation:server.name}));
   const workflows=providedWorkflows||createWorkflows(db,service,operations,{send:(ws,message)=>sendAlert(getBot(),ws,message)});
   const configurations=providedConfigurations||createConfigLibrary(db,vault,service,operations);
-  const community = createCommunity(db);
+  const community = createCommunity(db), members = createCommunityMembers(db, { service }), accountService = createAccount(db, vault, env, billing);
   const siteDesign=createCommunityDesign(db),store=providedStore||createCommunityStore(db,env);
+  const delivery=createPurchaseDelivery(db,store,service,providedRewards||createDiscordRewards(getBot));
+  store.setActionsValidator?.(delivery.validate);
   const banDirectory = createBanDirectory(db),
     team = createTeam(db),
     profiles = createPlayerProfiles(db),
@@ -72,7 +80,9 @@ export function createApp({
   app.locals.flushAuditWrites=async()=>{while(pendingAuditWrites.size)await Promise.all([...pendingAuditWrites]);};
   app.locals.workflows=workflows;
   app.locals.configurations=configurations;
-  app.locals.store=store;
+  app.locals.store=store;app.locals.delivery=delivery;
+  app.locals.members=members;
+  app.locals.operations=operations;
   app.disable('x-powered-by');
   app.set('trust proxy', Number(env.TRUST_PROXY_HOPS || 0));
   app.use(helmet({
@@ -93,11 +103,20 @@ export function createApp({
     res.json({
       received: true
     });
+    app.post('/api/webhooks/paypal', express.json({limit:'1mb'}), async (req,res)=>{
+      if(!paypal?.ready || !(await paypal.verifyWebhook(req.headers,req.body))) return res.status(400).json({error:'Invalid PayPal webhook.'});
+      res.json({received:true});
+    });
   });
   app.post('/api/webhooks/community-stripe',express.raw({type:'application/json',limit:'1mb'}),async(req,res)=>{await store.webhook(req.body,req.headers['stripe-signature']);res.json({received:true});});
   app.use(express.json({
     limit: '64kb'
   }), cookieParser());
+  app.post('/api/link-events', rateLimit({ windowMs: 60000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false }), async (req, res) => {
+    const authorization = req.get('Authorization') || '';
+    const token = authorization.match(/^Bearer\s+(.+)$/i)?.[1];
+    res.json(await members.ingestChatEvent(token, req.body));
+  });
   app.get('/api/health', (_, res) => res.json({
     status: 'ok',
     service: 'rookrift'
@@ -161,12 +180,24 @@ export function createApp({
     });
     res.redirect(`https://discord.com/oauth2/authorize?${params}`);
   });
+  app.get('/auth/discord/link', async (req, res) => {
+    const token = req.cookies.rookrift_session;
+    const session = token && await db.prepare('SELECT user_id FROM sessions WHERE token_hash=? AND expires_at>?').get(hash(token), Date.now());
+    if (!session) { res.redirect('/login?return_to=%2Fdashboard%3Faccount%3Ddiscord'); return; }
+    if (!env.DISCORD_CLIENT_ID || !env.DISCORD_CLIENT_SECRET) { res.status(503).send('Discord linking is not configured. See the Rookrift setup guide.'); return; }
+    const state = randomBytes(32).toString('hex');
+    await db.prepare('INSERT INTO oauth_link_states VALUES(?,?,?)').run(hash(state), session.user_id, Date.now() + 600000);
+    res.cookie('rookrift_oauth_link', state, { ...cookieOptions, maxAge: 600000 });
+    const params = new URLSearchParams({ client_id: env.DISCORD_CLIENT_ID, response_type: 'code', scope: 'identify', redirect_uri: env.DISCORD_REDIRECT_URI, state });
+    res.redirect(`https://discord.com/oauth2/authorize?${params}`);
+  });
   app.get('/auth/discord/callback', async (req, res) => {
     const state = typeof req.query.state === 'string' ? req.query.state : '';
-    if(!state||req.cookies.rookrift_oauth!==state||typeof req.query.code!=='string'){res.status(400).send('Sign-in state is invalid or expired. Please sign in again.');return;}
-    const row=await db.prepare('DELETE FROM oauth_states WHERE state_hash=? AND expires_at>? RETURNING state_hash').get(hash(state),Date.now());
+    if(!state||(!req.cookies.rookrift_oauth&&!req.cookies.rookrift_oauth_link)||(req.cookies.rookrift_oauth!==state&&req.cookies.rookrift_oauth_link!==state)||typeof req.query.code!=='string'){res.status(400).send('Sign-in state is invalid or expired. Please sign in again.');return;}
+    const linkRow = req.cookies.rookrift_oauth_link && await db.prepare('DELETE FROM oauth_link_states WHERE state_hash=? AND expires_at>? RETURNING user_id').get(hash(state), Date.now());
+    const row=linkRow ? linkRow : await db.prepare('DELETE FROM oauth_states WHERE state_hash=? AND expires_at>? RETURNING state_hash').get(hash(state),Date.now());
     if(!row){res.status(400).send('Sign-in state is invalid or expired. Please sign in again.');return;}
-    res.clearCookie('rookrift_oauth', cookieOptions);
+    res.clearCookie('rookrift_oauth', cookieOptions); res.clearCookie('rookrift_oauth_link', cookieOptions);
     const response = await fetch('https://discord.com/api/v10/oauth2/token', {
       method: 'POST',
       headers: {
@@ -187,9 +218,15 @@ export function createApp({
     }
     const token = await response.json(),
       user = await discordFetch('/users/@me', token.access_token);
-    await db.prepare('INSERT INTO users VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,avatar=excluded.avatar,access_token=excluded.access_token').run(user.id, user.global_name || user.username, user.avatar || null, vault.encrypt(token.access_token));
+    if (linkRow) {
+      const existing = await db.prepare('SELECT id FROM users WHERE discord_id=? AND id<>?').get(user.id, linkRow.user_id);
+      if (existing) { res.status(409).send('That Discord account is already linked to another Rookrift account.'); return; }
+      await db.prepare('UPDATE users SET discord_id=?,avatar=COALESCE(avatar,?) WHERE id=?').run(user.id, user.avatar || null, linkRow.user_id);
+      res.redirect(origin + '/dashboard?account=discord-linked'); return;
+    }
+    await db.prepare('INSERT INTO users(id,name,avatar,access_token,discord_id) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,avatar=excluded.avatar,access_token=excluded.access_token,discord_id=excluded.discord_id').run(user.id, user.global_name || user.username, user.avatar || null, vault.encrypt(token.access_token), user.id);
     const returnPath=accountReturn(req.cookies.rookrift_return)||'/dashboard';
-    if(!returnPath.startsWith('/c/'))await db.prepare('INSERT INTO workspaces(id,owner_id,created_at) VALUES(?,?,?) ON CONFLICT DO NOTHING').run(randomUUID(), user.id, Date.now());
+    if(!returnPath.startsWith('/c/'))await ensurePersonalWorkspace(db,user.id);
     const session = randomBytes(32).toString('hex'),
       csrf = randomBytes(24).toString('hex');
     await db.prepare('INSERT INTO sessions VALUES(?,?,?,?)').run(hash(session), user.id, csrf, Date.now() + 7 * 86400000);
@@ -225,11 +262,20 @@ export function createApp({
     res.status(201).json({ ok: true });
   });
   app.post('/auth/login', authLimiter, async (req, res) => {
-    const input = z.object({ email: emailSchema, password: z.string().max(128) }).strict().parse(req.body);
+    const input = z.object({ email: emailSchema, password: z.string().max(128), totp: z.string().optional() }).strict().parse(req.body);
     const account = await db.prepare('SELECT u.id, u.name, EXISTS(SELECT 1 FROM suspended_users s WHERE s.user_id=u.id) AS suspended, a.password_hash FROM local_accounts a JOIN users u ON u.id=a.user_id WHERE a.email=?').get(input.email);
     if (!account || account.suspended || !(await verifyPassword(input.password, account.password_hash))) throw Object.assign(new Error('Email or password is incorrect.'), { status: 401 });
+    if (!(await accountService.verifyTotp(account.id, input.totp))) throw Object.assign(new Error('Enter the six-digit authenticator code to continue.'), { status: 401 });
     await createSession(account.id, res);
     res.json({ ok: true });
+  });
+  app.post('/auth/password-reset/request', authLimiter, async (req, res) => { await accountService.requestReset(req.body?.email); res.json({ ok: true, message: 'If that email belongs to an account, a reset link has been sent.' }); });
+  app.post('/auth/password-reset/confirm', authLimiter, async (req, res) => res.json(await accountService.resetPassword(req.body?.token, req.body?.password)));
+  app.post('/auth/passkeys/options', authLimiter, async (req, res) => res.json(await accountService.authenticationOptions()));
+  app.post('/auth/passkeys/verify', authLimiter, async (req, res) => {
+    const result = await accountService.authenticatePasskey(req.body);
+    const session = await issueSession(result.user_id);
+    res.cookie('rookrift_session', session.token, { ...cookieOptions, maxAge: 7 * 86400000 }).json({ ok: true });
   });
   // Public community routes deliberately precede the dashboard workspace middleware.
   app.use('/api/public',async(req,res,next)=>{
@@ -246,6 +292,10 @@ export function createApp({
   app.get('/api/public/communities/:slug',async(req,res)=>res.json(await community.publicPage(req.params.slug,req.visitor)));
   app.get('/api/public/communities/:slug/store',async(req,res)=>res.json(await store.publicPage(req.params.slug,req.visitor)));
   app.get('/api/public/communities/:slug/store/orders',async(req,res)=>res.json(await store.buyerOrders(req.params.slug,req.visitor)));
+  app.get('/api/public/communities/:slug/member',async(req,res)=>res.json(await members.view(req.params.slug,req.visitor)));
+  app.post('/api/public/communities/:slug/member/link-code',communityWrites,async(req,res)=>res.json(await members.createLinkCode(req.params.slug,req.visitor,req.body?.game)));
+  app.post('/api/public/communities/:slug/member/game-accounts',communityWrites,async(req,res)=>res.json(await members.add(req.params.slug,req.visitor,req.body)));
+  app.delete('/api/public/communities/:slug/member/game-accounts/:id',communityWrites,async(req,res)=>res.json(await members.remove(req.params.slug,req.visitor,req.params.id)));
   app.post('/api/public/communities/:slug/store/checkout',communityWrites,async(req,res)=>res.json(await store.checkout(req.params.slug,req.visitor,req.body)));
   app.post('/api/public/communities/:slug/store/orders/:id/refresh',communityWrites,async(req,res)=>res.json(await store.refreshBuyerOrder(req.params.slug,req.visitor,req.params.id)));
   app.post('/api/public/communities/:slug/applications',communityWrites,async(req,res)=>res.status(201).json(await community.apply(req.params.slug,req.visitor,req.body)));
@@ -305,6 +355,7 @@ export function createApp({
     bot: getBot(),
     env
   })));
+  app.post('/api/workspaces',async(req,res)=>res.status(201).json(await createWorkspace(db,req.auth,req.body)));
   app.get('/api/workspaces', async (req, res) => res.set('Cache-Control', 'no-store').json(await team.listWorkspaces(req.auth.user_id)));
   app.get('/api/workflows',async(req,res)=>res.json(await workflows.view(req.workspace.id,req.access.server_ids)));
   app.get('/api/workflow-runs/:id',async(req,res)=>res.json(await workflows.detail(req.workspace.id,req.params.id)));
@@ -331,6 +382,14 @@ export function createApp({
   app.put('/api/community/site-builder',async(req,res)=>res.json(await siteDesign.save(req.workspace.id,req.body)));
   app.post('/api/community/site-builder/publish',async(req,res)=>res.json(await siteDesign.publish(req.workspace.id)));
   app.post('/api/community/site-builder/reset',async(req,res)=>res.json(await siteDesign.reset(req.workspace.id)));
+  app.get('/api/community/store/delivery-options',async(req,res)=>res.json(await delivery.options(req.workspace.id)));
+  app.post('/api/community/store/categories',async(req,res)=>res.status(201).json(await store.category(req.workspace.id,null,req.body)));
+  app.patch('/api/community/store/categories/:id',async(req,res)=>res.json(await store.category(req.workspace.id,req.params.id,req.body)));
+  app.delete('/api/community/store/categories/:id',async(req,res)=>res.json(await store.removeCategory(req.workspace.id,req.params.id)));
+  app.put('/api/community/store/products/:id/actions',async(req,res)=>res.json(await store.configureActions(req.workspace.id,req.params.id,req.body)));
+  app.get('/api/community/store/orders/:id/delivery',async(req,res)=>res.json(await delivery.jobs(req.workspace.id,req.params.id)));
+  app.post('/api/community/store/orders/:id/delivery/retry',async(req,res)=>res.json(await delivery.retry(req.workspace.id,req.params.id)));
+  app.post('/api/community/store/orders/:id/delivery/:job/resolve',async(req,res)=>res.json(await delivery.resolve(req.workspace.id,req.params.id,req.params.job,req.body,req.user)));
   app.get('/api/community/store',async(req,res)=>res.json(await store.manage(req.workspace.id)));
   app.put('/api/community/store/settings',async(req,res)=>res.json(await store.settings(req.workspace.id,req.body)));
   app.post('/api/community/store/products',async(req,res)=>res.status(201).json(await store.product(req.workspace.id,null,req.body)));
@@ -392,6 +451,12 @@ export function createApp({
     await service.getServer(req.workspace.id, req.params.id, false);
     if (input.host !== undefined) await resolveTarget(input.host);
     res.json(await service.updateServer(req.workspace.id, req.params.id, input));
+  });
+  app.post('/api/servers/:id/link-agent', async (req, res) => {
+    const server = await service.getServer(req.workspace.id, req.params.id, false);
+    const token = randomBytes(32).toString('base64url');
+    await db.prepare('UPDATE servers SET link_ingest_token_hash=? WHERE id=? AND workspace_id=?').run(hash(token), server.id, req.workspace.id);
+    res.json({ server_id: server.id, token, endpoint: `${origin}/api/link-events`, usage: 'Authorization: Bearer <token>' });
   });
   app.post('/api/servers/bulk-actions', async (req, res) => res.json(await service.bulkAction(req.workspace.id, req.body)));
   app.delete('/api/servers/:id', async (req, res) => {
@@ -543,12 +608,22 @@ export function createApp({
       plan: z.enum(['tribe', 'cluster'])
     }).parse(req.body);
     res.json({
-      url: await billing.checkout(req.workspace, plan)
+      url: await billing.checkout(req.workspace, plan, req.body?.provider || 'stripe')
     });
   });
   app.post('/api/billing/portal', async (req, res) => res.json({
     url: await billing.portal(req.workspace)
   }));
+  app.get('/api/account', async (req, res) => res.json(await accountService.get(req.user.id)));
+  app.patch('/api/account/profile', async (req, res) => res.json(await accountService.updateProfile(req.user.id, req.body)));
+  app.patch('/api/account/email', async (req, res) => res.json(await accountService.updateEmail(req.user.id, req.body)));
+  app.post('/api/account/password', async (req, res) => res.json(await accountService.changePassword(req.user.id, req.body, req.auth.token_hash)));
+  app.post('/api/account/2fa/setup', async (req, res) => res.json(await accountService.setupTotp(req.user.id)));
+  app.post('/api/account/2fa/confirm', async (req, res) => res.json(await accountService.confirmTotp(req.user.id, req.body?.code)));
+  app.post('/api/account/2fa/disable', async (req, res) => res.json(await accountService.disableTotp(req.user.id, req.body)));
+  app.post('/api/account/passkeys/options', async (req, res) => res.json(await accountService.registrationOptions(req.user.id)));
+  app.post('/api/account/passkeys', async (req, res) => res.json(await accountService.registerPasskey(req.user.id, req.body)));
+  app.delete('/api/account/passkeys/:id', async (req, res) => res.json(await accountService.removePasskey(req.user.id, req.params.id)));
   app.get('/api/platform', async (req,res)=>res.set('Cache-Control','no-store').json(await platformAdmin.overview(req.user)));
   app.get('/api/platform/bootstrap', async (req,res)=>res.set('Cache-Control','no-store').json({...await platformAdmin.overview(req.user),csrf:req.auth.csrf}));
   app.patch('/api/platform/settings', async (req,res)=>res.json(await platformAdmin.updateSettings(req.user,req.body)));

@@ -40,7 +40,7 @@ export async function buildDashboard({
   const invite = owner && env.DISCORD_CLIENT_ID ? `https://discord.com/oauth2/authorize?${new URLSearchParams({
     client_id: env.DISCORD_CLIENT_ID,
     scope: 'bot applications.commands',
-    permissions: '19456',
+    permissions: '268454912',
     integration_type: '0'
   })}` : null;
   const scoped = rows => rows.filter(row => visible.has(row.server_id));
@@ -48,7 +48,7 @@ export async function buildDashboard({
     user: {...req.user, platform_admin: Boolean(req.user.platform_admin), impersonating: Boolean(req.auth.impersonating)},
     workspace: {
       id: ws.id,
-      name: ws.name,
+      name: ws.name,game_focus:ws.game_focus,
       plan: plan.id,
       subscription_status: ws.subscription_status,
       hasBillingAccount: owner && Boolean(ws.customer_id),

@@ -20,7 +20,7 @@ const faqs=[
  ['Can I use my existing hosting provider?','ARK RCON monitoring and commands work independently of your hosting provider when the connection is reachable. Pterodactyl and Pelican connectors add power controls, resources, backups and configuration deployment. Nitrado supports state and power controls; backup and configuration tools are not available through that connector.'],
  ['What is included in the free plan?','Scout includes two game servers, two scheduled automations, two multi-step workflows and two days of history, plus Discord controls, player tools and the community hub. You can create an account without entering payment details.'],
  ['What happens when I change plans?','You can manage your subscription in the dashboard. If you downgrade, Rookrift keeps your records and pauses connections and tasks beyond the new limits. It does not destroy your game servers.'],
- ['Are store purchases delivered automatically?','Stripe verifies payments and Rookrift gives your staff an order and delivery queue. Community staff arrange in-game delivery and record the outcome. Automatic item spawning and recurring supporter perks are not included.']
+ ['Are store purchases delivered automatically?','Owners can configure server commands and Discord role awards after verified payment, or arrange staff delivery. Game commands depend on your server or plugin and the correct player ID; uncertain outcomes stop for review. Recurring supporter perks and automatic expiry are not included.']
 ];
 
 function Wordmark(){return <a className="landing-wordmark" href="/" aria-label="Rookrift home"><span><img src="/brand/favicon-64.png" alt="" width="30" height="30"/></span>rookrift<span className="landing-wordmark-dot">.</span></a>;}

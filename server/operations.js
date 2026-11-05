@@ -299,6 +299,16 @@ export function createOperations(db, vault, service, hosting = createHostingAdap
       };
     },
     async hostingResources(workspace,id){return hosting.resources(await hostConnection(workspace,id));},
+    async hostingConsole(id,onLine,onClose){
+      const connection = await db.prepare('SELECT * FROM hosting_connections WHERE server_id=?').get(id);
+      if (!connection) throw Object.assign(new Error('Hosting panel is not connected for this server.'), { status: 409 });
+      return hosting.openConsole({...connection,key:vault.decrypt(connection.api_key)},onLine,onClose);
+    },
+    async serverChat(id){
+      const server = await db.prepare('SELECT workspace_id FROM servers WHERE id=?').get(id);
+      if (!server) throw Object.assign(new Error('Server not found.'), { status: 404 });
+      return service.chat(server.workspace_id, id);
+    },
     async hostingBackupStatus(workspace,id,backupId){const connection=await hostConnection(workspace,id);assertHostingCapability(connection.provider,'backups');return hosting.backup?hosting.backup(connection,backupId):(await hosting.backups(connection)).find(item=>item.id===backupId)||{status:'unknown'};},
     async hostingAction(workspace, id, input,internal={}) {
       const server = await service.getServer(workspace, id);

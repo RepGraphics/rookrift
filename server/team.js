@@ -1,3 +1,4 @@
+import {ensurePersonalWorkspace} from './workspaces.js';
 import { randomUUID, randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { hash } from './crypto.js';
@@ -37,9 +38,9 @@ export function createTeam(db) {
     };
   }
   async function listWorkspaces(userId) {
-    return (await Promise.all((await db.prepare('SELECT DISTINCT w.id,w.name,w.owner_id,w.created_at FROM workspaces w LEFT JOIN workspace_members m ON m.workspace_id=w.id WHERE w.owner_id=? OR m.user_id=? ORDER BY w.created_at,w.id').all(userId, userId)).map(async ws => ({
+    return (await Promise.all((await db.prepare('SELECT DISTINCT w.id,w.name,w.owner_id,w.created_at,w.game_focus FROM workspaces w LEFT JOIN workspace_members m ON m.workspace_id=w.id WHERE w.owner_id=? OR m.user_id=? ORDER BY w.created_at,w.id').all(userId, userId)).map(async ws => ({
       id: ws.id,
-      name: ws.name,
+      name: ws.name,game_focus:ws.game_focus,
       ...(await access(ws.id, userId))
     })))).filter(ws => ws.role);
   }
@@ -78,7 +79,7 @@ export function createTeam(db) {
       const selection = await db.prepare('SELECT workspace_id FROM session_workspaces WHERE token_hash=?').get(session.token_hash);
       let id = selection?.workspace_id;
       id ??= (await listWorkspaces(session.user_id)).find(ws => ws.role === 'owner')?.id || (await listWorkspaces(session.user_id))[0]?.id;
-      if(!id){await db.prepare('INSERT INTO workspaces(id,owner_id,created_at) VALUES(?,?,?) ON CONFLICT(owner_id) DO NOTHING').run(randomUUID(),session.user_id,Date.now());id=(await db.prepare('SELECT id FROM workspaces WHERE owner_id=?').get(session.user_id)).id;}
+      if(!id)id=await ensurePersonalWorkspace(db,session.user_id);
       const granted=await access(id,session.user_id);
       if(!granted){await db.prepare('DELETE FROM session_workspaces WHERE token_hash=?').run(session.token_hash);throw fail('Your access to this workspace has ended or is paused. Reload to return to your workspace.');}
       return {

@@ -10,7 +10,7 @@ The owner gets a link to share themselves. Rookrift does not send an email or Di
 
 The invitation token is carried in the URL fragment and saved in tab-local session storage while Discord sign-in completes. It is removed from the address bar and cleared after acceptance or dismissal. Preview and acceptance use authenticated, CSRF-protected POST requests. No invitation link grants access by itself.
 
-Use the **Active workspace** selector in the header to switch between your own workspace and accepted invitations. Selection belongs to the current login session. API requests resolve current membership and server grants again rather than trusting browser state or a cached role. Removing a member or changing their scope applies on their next request; an already accepted/in-progress game command cannot be recalled. If selected membership ends or becomes plan-paused, the next request rejects it and clears that selection; reload to return to an available workspace.
+Use **New workspace** to create another game or community setup, and **Active workspace** to switch between owned workspaces and accepted invitations. Each starts on Scout with separate billing, servers, staff, catalog and community page. See [workspace setup](WORKSPACES.md). Selection belongs to the current login session. API requests resolve current membership and server grants again rather than trusting browser state or a cached role. Removing a member or changing their scope applies on their next request; an already accepted/in-progress game command cannot be recalled. If selected membership ends or becomes plan-paused, the next request rejects it and clears that selection; reload to return to an available workspace.
 
 | Role | Permitted work |
 | --- | --- |

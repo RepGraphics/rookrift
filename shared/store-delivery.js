@@ -1,0 +1,13 @@
+export const DELIVERY_ID_KINDS={numeric:'Numeric in-game PlayerID',eos:'EOS ID',steam:'Steam64 ID',uuid:'UUID',game:'Game / plugin account ID'};
+export function deliveryIdentifier(value,kind='game'){
+ if(typeof value!=='string')throw new Error('Enter a recipient identifier.');
+ const id=value.trim(),patterns={numeric:/^[1-9][0-9]{0,19}$/,eos:/^[a-f0-9]{32}$/i,steam:/^[0-9]{17}$/,uuid:/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i,game:/^[A-Za-z0-9_-]{3,100}$/};
+ if(!patterns[kind]?.test(id))throw new Error('Enter a valid '+(DELIVERY_ID_KINDS[kind]||'recipient identifier')+'.');return id;
+}
+export function validatePurchaseCommand(command){
+ if(typeof command!=='string'||!command.trim()||command.length>600||/[\x00-\x1f\x7f;|]/.test(command))throw Object.assign(new Error('Use one command, up to 600 characters, without control characters or command separators.'),{status:400});return command.trim();
+}
+export function renderPurchaseCommand(template,identifier,kind,orderId){
+ validatePurchaseCommand(template);if(!template.includes('{identifier}')||/\{(?!identifier\}|order_id\})/.test(template))throw Object.assign(new Error('Include {identifier}; only {identifier} and {order_id} placeholders are supported.'),{status:400});
+ return validatePurchaseCommand(template.replaceAll('{identifier}',deliveryIdentifier(identifier,kind)).replaceAll('{order_id}',orderId));
+}

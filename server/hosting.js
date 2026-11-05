@@ -2,6 +2,7 @@ import https from 'node:https';
 import { isIP } from 'node:net';
 import { resolveTarget } from './games.js';
 import {assertHostingCapability,hostingCapabilities} from '../shared/hosting-providers.js';
+import WebSocket from 'ws';
 export async function securePanelRequest(origin, path, key, method = 'GET', body,options={}) {
   const url = new URL(origin);
   if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash) throw Object.assign(new Error('Use an HTTPS panel origin without a path, query, or credentials.'),{status:400});
@@ -29,6 +30,29 @@ function createPanelAdapter(request) {
   const base=connection=>`/api/client/servers/${encodeURIComponent(connection.remote_id)}`;
   const call=(connection,path,method,body,options)=>request(connection.origin,base(connection)+path,connection.key,method,body,options);
   return {
+    async openConsole(connection, onLine, onClose = () => {}) {
+      const data = await call(connection, '/websocket');
+      const session = attributes(data?.data || data);
+      const socketUrl = session.socket, token = session.token;
+      if (typeof socketUrl !== 'string' || typeof token !== 'string') throw Object.assign(new Error('The hosting panel did not return a console WebSocket session.'), { status: 502 });
+      const socket = new WebSocket(socketUrl, { origin: connection.origin });
+      let closed = false;
+      const close = () => { if (!closed) { closed = true; socket.close(); } };
+      socket.on('open', () => socket.send(JSON.stringify({ event: 'auth', args: [token] })));
+      socket.on('message', data => {
+        try {
+          const event = JSON.parse(String(data));
+          if (event.event === 'console output' && typeof event.args?.[0] === 'string') {
+            for (const line of event.args[0].split(/\r?\n/).map(value => value.trim()).filter(Boolean)) onLine(line);
+          }
+          if (event.event === 'token expiring') socket.send(JSON.stringify({ event: 'auth', args: [token] }));
+          if (event.event === 'token expired') close();
+        } catch { /* Ignore malformed provider events; the stream remains available. */ }
+      });
+      socket.on('error', () => close());
+      socket.on('close', () => { closed = true; onClose(); });
+      return close;
+    },
     readFile:(connection,path)=>call(connection,'/files/contents?file='+encodeURIComponent(path),'GET',undefined,{text:true}),
     writeFile:(connection,path,body)=>call(connection,'/files/write?file='+encodeURIComponent(path),'POST',body,{raw:true}),
     async resources(connection) {
@@ -77,5 +101,6 @@ export function createHostingAdapter(request=securePanelRequest){
   backup:(c,id)=>{assertHostingCapability(c.provider,'backups');return choose(c).backup(c,id);},
   readFile:(c,path)=>{assertHostingCapability(c.provider,'files');return choose(c).readFile(c,path);},
   writeFile:(c,path,body)=>{assertHostingCapability(c.provider,'files');return choose(c).writeFile(c,path,body);}
+  ,openConsole:(c,onLine)=>{if(c.provider==='nitrado')throw Object.assign(new Error('Nitrado console log streaming is not available through this connector yet.'),{status:400});return choose(c).openConsole(c,onLine);}
  };
 }

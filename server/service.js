@@ -82,6 +82,7 @@ export function createService(db, vault, transport = runRcon) {
     async addServer(workspaceId, input) {
       return await db.withWorkspaceLock(workspaceId, async () => {
         const data = serverSchema.parse(input);
+        const focus=(await workspace(workspaceId)).game_focus;if(focus==='dayz'||(['asa','ase'].includes(focus)&&focus!==data.game))throw Object.assign(new Error('Choose a server matching this workspace game focus. DayZ connections are not available yet.'),{status:400});
         // Serialize quota checks and inserts against this workspace's PostgreSQL row.
         assertCapacity(await workspace(workspaceId), (await listServers(db, workspaceId)).length);
         const id = randomUUID();
@@ -92,6 +93,7 @@ export function createService(db, vault, transport = runRcon) {
     },
     async updateServer(workspaceId, id, input) {
       const data = serverUpdateSchema.parse(input);
+      const focus=(await workspace(workspaceId)).game_focus;if(data.game&&(['asa','ase'].includes(focus)&&data.game!==focus||focus==='dayz'))throw Object.assign(new Error('Choose a game matching this workspace focus.'),{status:400});
       await getServer(workspaceId, id, false);
       if (busy.has(id)) throw Object.assign(new Error('Wait for the current server command to finish before editing its connection.'), {
         status: 409
@@ -245,6 +247,10 @@ export function createService(db, vault, transport = runRcon) {
         results
       };
     },
+    async purchaseCommand(workspaceId,serverId,command,beforeSend){
+      commandFor('purchase',command);if(busy.has(serverId))throw Object.assign(new Error('Another server command is running.'),{status:409,code:'SERVER_BUSY'});busy.add(serverId);
+      try{const server=await getServer(workspaceId,serverId);await assertWorkflowIdle(db,serverId);if((await maintenanceState(db,server)).in_maintenance||server.status!=='online'||!server.last_checked||Date.now()-server.last_checked>180000)throw Object.assign(new Error('Waiting for the server to be online and outside maintenance.'),{status:409,code:'TARGET_NOT_READY'});await beforeSend(server);return await transport(server,vault,'purchase',command);}finally{busy.delete(serverId);}
+    },
     async action(workspaceId, serverId, action, message, actor = 'Dashboard') {
       const server = await getServer(workspaceId, serverId);
       commandFor(action, message);
@@ -260,7 +266,7 @@ export function createService(db, vault, transport = runRcon) {
           await db.prepare('UPDATE servers SET status=?,players=?,player_list=?,latency=?,last_checked=? WHERE id=?').run('online', players.length, JSON.stringify(players), result.latency, checkedAt, serverId);
           await observePlayers(db, server, players, checkedAt);
         }
-        if (action !== 'status') await audit(db, workspaceId, {
+        if (action !== 'status' && action !== 'chat') await audit(db, workspaceId, {
           save: 'World saved',
           broadcast: 'Broadcast sent',
           players: 'Player list requested',
@@ -278,6 +284,29 @@ export function createService(db, vault, transport = runRcon) {
         }
         if (action !== 'status') await audit(db, workspaceId, 'Command failed', `${server.name} · ${error.message}`, 'error', serverId);
         throw error;
+      } finally {
+        busy.delete(serverId);
+      }
+    },
+    async directMessage(workspaceId, serverId, player, message) {
+      const server = await getServer(workspaceId, serverId);
+      const payload = `${player}|${message}`;
+      commandFor('direct', payload, server.game);
+      if (busy.has(serverId)) throw Object.assign(new Error('Another command is running on this server. Try again shortly.'), { status: 409, code: 'SERVER_BUSY' });
+      busy.add(serverId);
+      try {
+        return await transport(server, vault, 'direct', payload);
+      } finally {
+        busy.delete(serverId);
+      }
+    },
+    async chat(workspaceId, serverId) {
+      const server = await getServer(workspaceId, serverId, false);
+      commandFor('chat', '', server.game);
+      if (busy.has(serverId)) throw Object.assign(new Error('Another command is running on this server. Try again shortly.'), { status: 409, code: 'SERVER_BUSY' });
+      busy.add(serverId);
+      try {
+        return await transport(server, vault, 'chat', '');
       } finally {
         busy.delete(serverId);
       }

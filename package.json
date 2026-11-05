@@ -1,6 +1,6 @@
 {
   "name": "rookrift",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -23,6 +23,8 @@
     "test:docker": "node scripts/smoke-production.mjs"
   },
   "dependencies": {
+    "@simplewebauthn/browser": "^14.0.0",
+    "@simplewebauthn/server": "^14.0.3",
     "cookie-parser": "^1.4.7",
     "discord.js": "^14.25.1",
     "express": "^5.1.0",
@@ -30,12 +32,14 @@
     "helmet": "^8.1.0",
     "ipaddr.js": "^2.2.0",
     "lucide-react": "^0.468.0",
+    "nodemailer": "^10.3.1",
+    "pg": "^8.23.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "redis": "^6.3.1",
     "stripe": "^20.0.0",
-    "zod": "^4.1.12",
-    "pg": "^8.23.1",
-    "redis": "^6.3.1"
+    "ws": "^8.22.1",
+    "zod": "^4.1.12"
   },
   "devDependencies": {
     "@testing-library/react": "^16.3.3",

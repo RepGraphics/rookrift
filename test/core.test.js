@@ -104,7 +104,10 @@ test('DayZ and invalid game inputs are refused rather than using the ARK protoco
 test('source RCON commands and player parsing are bounded', () => {
   assert.equal(commandFor('save'), 'SaveWorld');
   assert.equal(commandFor('status'), 'ListPlayers');
+  assert.equal(commandFor('chat'), 'GetChat');
   assert.equal(commandFor('broadcast', 'Hello\nworld'), 'Broadcast Hello world');
+  assert.equal(commandFor('broadcast', 'Hello\nworld', 'asa'), 'ServerChat Hello world');
+  assert.equal(commandFor('direct', 'Survivor One|Linked successfully', 'asa'), 'ServerChatToPlayer Survivor One Linked successfully');
   assert.throws(() => commandFor('broadcast', ''));
   assert.throws(() => commandFor('destroy'));
   assert.deepEqual(parsePlayers('0. Survivor, 7656111\n1. Bob, 7656112\n'), ['Survivor, 7656111', 'Bob, 7656112']);

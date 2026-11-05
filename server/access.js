@@ -18,12 +18,13 @@ export async function authorizeRequest(db, req) {
     } = req,
     path = req.path,
     method = req.method;
+  if(path==='/workspaces'&&method==='POST')return;
   if (access.role === 'owner') return;
   const admin = access.role === 'admin',
     write = admin || access.role === 'moderator';
   if(/^\/community(?:\/|$)/.test(path)){
     if(access.server_ids!==null)deny();
-    if(path==='/community/store/connect')deny();
+    if(path==='/community/store/connect'||/^\/community\/store\/products\/[^/]+\/actions$/.test(path)||/\/resolve$/.test(path))deny();
     if(/^\/community\/applications(?:\/[^/]+)?$/.test(path)){if(write&&['GET','PATCH'].includes(method))return;if(admin&&method==='DELETE')return;deny();}
     if(admin)return;
     deny();
@@ -63,7 +64,7 @@ export async function authorizeRequest(db, req) {
     await server(req.query.server_id);
     return;
   }
-  let match = path.match(/^\/servers\/([^/]+)(?:\/(actions|hosting)(?:\/(actions))?)?$/);
+  let match = path.match(/^\/servers\/([^/]+)(?:\/(actions|hosting|link-agent)(?:\/(actions))?)?$/);
   if (path === '/servers' && method === 'POST') {
     if (admin && access.server_ids === null) return;
     deny();

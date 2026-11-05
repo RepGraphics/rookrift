@@ -9,7 +9,7 @@ export function authDestination(search=''){
 export function siteRoute(pathname,search='',hash=''){
  const path=pathname.replace(/\/+$/,'')||'/',params=new URLSearchParams(search),community=path.match(/^\/c\/([a-z0-9-]{3,48})$/);
  if(community)return{page:'community',slug:community[1]};
- if(['/dashboard','/admin','/login','/register'].includes(path))return{page:path.slice(1)};
+ if(['/dashboard','/admin','/login','/register','/reset-password'].includes(path))return{page:path.slice(1)};
  if(path==='/'){
   // Retain links sent before the public homepage had its own route.
   if(params.has('return_to'))return{page:'login'};

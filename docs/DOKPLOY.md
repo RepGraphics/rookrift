@@ -1,6 +1,6 @@
 # Dokploy: PostgreSQL and Redis
 
-Rookrift 0.8 uses **PostgreSQL 18** as its primary database, suited to Rookrift's relational data and concurrent queries. **Redis 8** optionally caches metric aggregates. PostgreSQL stores all durable application data; Redis can be restarted or cleared without losing communities, credentials, notes or bans.
+Rookrift 0.10 uses **PostgreSQL 18** as its primary database, suited to Rookrift's relational data and concurrent queries. **Redis 8** optionally caches metric aggregates. PostgreSQL stores all durable application data, including purchase-action jobs; Redis can be restarted or cleared without losing communities, credentials, notes or bans.
 
 The hosted ChatGPT Site remains a browser-local demo. Your Dokploy application runs the live Node/Discord/RCON service and connects to these databases.
 
@@ -105,3 +105,11 @@ References: [Dokploy databases](https://docs.dokploy.com/docs/core/databases), [
 Startup applies migrations 4?8 in order, preserving existing accounts, platform settings and community pages. Back up PostgreSQL and retain the original encryption key before upgrading. The former application setting becomes two independently configurable forms. New site designs and storefronts stay unpublished/disabled until configured.
 
 For real merchant payments, configure **separate** `STRIPE_CONNECT_SECRET_KEY` and `STRIPE_CONNECT_WEBHOOK_SECRET`, then restart the application. They can also be entered into encrypted platform settings. Follow [storefront setup](STOREFRONT.md) for connected-account webhooks and test-mode validation; the existing Rookrift subscription webhook is unchanged. Provider credentials are entered per game server in the dashboard, not copied into the frontend. See [provider capabilities and token setup](HOSTING-PROVIDERS.md).
+
+## Release 0.10 workspaces and purchase actions
+
+Migration 9 removes the one-owned-workspace constraint and adds game focus, catalog categories/images and durable purchase jobs. The current release also includes the finished payment/account migrations through 15. Startup applies them in order; use a PostgreSQL backup and preserve the original encryption key. Existing workspaces retain mixed ARK focus and their current records. Existing products keep staff delivery until an owner explicitly configures purchase actions.
+
+Use one runtime with stop-first deployments. Its five-second purchase worker uses PostgreSQL records, not Redis, and commits an executing marker before sending a command. On restart an interrupted RCON action becomes uncertain for staff review; Discord grants can be rechecked idempotently. Do not reset uncertain jobs in SQL to force a replay.
+
+For Discord role rewards, use the dashboard's updated bot invite to grant **Manage Roles** and place the bot above the reward roles. The buyer needs Discord sign-in or a verified OAuth-linked Discord account and must join the linked guild. Run test-mode purchases against a disposable game world, including refund, offline-server and interrupted-command cases. See [purchase delivery](STOREFRONT.md) for identifier types and limitations. New workspaces have their own subscriptions and unpublished pages; no server moves automatically.

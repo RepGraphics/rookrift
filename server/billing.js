@@ -1,7 +1,7 @@
 import Stripe from 'stripe';
 import { audit } from './db.js';
 import { PLANS } from './plans.js';
-export function createBilling(db, env = process.env, injectedStripe) {
+export function createBilling(db, env = process.env, injectedStripe, paypal) {
   const stripe = injectedStripe || (env.STRIPE_SECRET_KEY ? new Stripe(env.STRIPE_SECRET_KEY) : null);
   const prices = {
     tribe: env.STRIPE_TRIBE_MONTHLY_PRICE_ID,
@@ -13,6 +13,7 @@ export function createBilling(db, env = process.env, injectedStripe) {
   };
   const ready = Boolean(stripe && env.STRIPE_WEBHOOK_SECRET && prices.tribe && prices.cluster);
   const checkoutBusy = new Set();
+  const configuredProvider = env.PLATFORM_BILLING_PROVIDER || 'stripe';
   function requireReady() {
     if (!ready) throw Object.assign(new Error('Billing is not configured yet. Ask the service owner to complete Stripe setup.'), {
       status: 503
@@ -34,9 +35,46 @@ export function createBilling(db, env = process.env, injectedStripe) {
     if (workspace.plan !== plan || workspace.subscription_status !== subscription.status) await audit(db, workspace.id, 'Subscription updated', `${plan} · ${subscription.status}`);
   }
   return {
+    async accountHistory(workspaces) {
+      const history = [];
+      for (const workspace of workspaces) {
+        const row = { workspace_id: workspace.id, workspace_name: workspace.name, plan: workspace.plan, status: workspace.subscription_status, invoices: [] };
+        if (stripe?.invoices?.list && workspace.customer_id) {
+          const invoices = await stripe.invoices.list({ customer: workspace.customer_id, limit: 50 }).catch(() => ({ data: [] }));
+          row.invoices = invoices.data.map(invoice => ({ id: invoice.id, number: invoice.number, status: invoice.status, amount: invoice.amount_paid ?? invoice.total ?? 0, currency: invoice.currency, paid_at: invoice.status_transitions?.paid_at ? invoice.status_transitions.paid_at * 1000 : null, hosted_url: invoice.hosted_invoice_url, pdf_url: invoice.invoice_pdf }));
+        }
+        history.push(row);
+      }
+      return history;
+    },
     ready,
     syncSubscription,
-    async checkout(workspace, plan) {
+    async checkout(workspace, plan, provider = configuredProvider) {
+      if (provider === 'paypal') {
+        if (!paypal?.ready) throw Object.assign(new Error('PayPal billing is not configured yet.'), { status: 503 });
+        const planId = env[`PAYPAL_${plan.toUpperCase()}_PLAN_ID`];
+        if (!planId) throw Object.assign(new Error('This PayPal membership plan is not configured yet.'), { status: 503 });
+        const checkout = await paypal.createSubscription({
+          planId,
+          reference: `membership-${workspace.id}-${plan}`,
+          returnUrl: `${env.APP_URL}/dashboard?billing=success`,
+          cancelUrl: `${env.APP_URL}/dashboard?billing=canceled`
+        });
+        if (!checkout.url) throw Object.assign(new Error('PayPal did not return an approval URL.'), { status: 502 });
+        return checkout.url;
+      }
+      if (provider === 'paypal_ipn' || provider === 'tebex') {
+        const key = `${provider === 'paypal_ipn' ? 'PAYPAL_IPN' : 'TEBEX'}_${plan.toUpperCase()}_URL`;
+        const url = env[key];
+        if (!url) throw Object.assign(new Error(`${provider === 'paypal_ipn' ? 'PayPal IPN' : 'Tebex'} is selected for platform billing but its hosted ${plan} checkout URL is not configured.`), { status: 503 });
+        try {
+          const parsed = new URL(url);
+          if (parsed.protocol !== 'https:') throw new Error();
+        } catch {
+          throw Object.assign(new Error('The configured hosted payment URL must use HTTPS.'), { status: 503 });
+        }
+        return url;
+      }
       requireReady();
       if (!prices[plan]) throw Object.assign(new Error('Choose a paid plan.'), {
         status: 400
@@ -98,6 +136,13 @@ export function createBilling(db, env = process.env, injectedStripe) {
             }
           },
           allow_promotion_codes: true,
+          // Let Stripe offer every payment method enabled for this account,
+          // including cards, wallets, bank methods, and buy-now-pay-later
+          // options where the customer and currency are eligible.
+          automatic_payment_methods: {
+            enabled: true,
+            allow_redirects: 'always'
+          },
           success_url: `${env.APP_URL}/dashboard?billing=success`,
           cancel_url: `${env.APP_URL}/dashboard?billing=canceled`
         });

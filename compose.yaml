@@ -28,6 +28,37 @@ services:
       update_config:
         parallelism: 1
         order: stop-first
+  stripe-cli:
+    image: stripe/stripe-cli:latest
+    profiles: ["stripe"]
+    restart: unless-stopped
+    command: listen --api-key ${STRIPE_CLI_API_KEY:-} --events checkout.session.completed,checkout.session.async_payment_succeeded,checkout.session.async_payment_failed,checkout.session.expired,customer.subscription.created,customer.subscription.updated,customer.subscription.deleted,invoice.paid,invoice.payment_failed --forward-to http://rookrift:3000/api/webhooks/stripe
+    depends_on:
+      rookrift:
+        condition: service_healthy
+  stripe-connect-cli:
+    image: stripe/stripe-cli:latest
+    profiles: ["stripe"]
+    restart: unless-stopped
+    command: listen --api-key ${STRIPE_CLI_API_KEY:-} --events account.updated,checkout.session.completed,checkout.session.async_payment_succeeded,checkout.session.async_payment_failed,checkout.session.expired,charge.refunded,charge.dispute.created,charge.dispute.closed --forward-connect-to http://rookrift:3000/api/webhooks/community-stripe
+    depends_on:
+      rookrift:
+        condition: service_healthy
+  link-agent:
+    build: .
+    profiles: ["link-agent"]
+    restart: unless-stopped
+    command: ["node", "scripts/link-agent.mjs"]
+    environment:
+      LINK_LOG_PATH: ${LINK_LOG_PATH:-/logs/server.log}
+      ROOKRIFT_LINK_ENDPOINT: ${ROOKRIFT_LINK_ENDPOINT:-http://rookrift:3000/api/link-events}
+      ROOKRIFT_LINK_TOKEN: ${ROOKRIFT_LINK_TOKEN:-}
+      ROOKRIFT_SERVER_ID: ${ROOKRIFT_SERVER_ID:-}
+    volumes:
+      - ${LINK_LOG_HOST_PATH:-./logs}:${LINK_LOG_PATH:-/logs/server.log}:ro
+    depends_on:
+      rookrift:
+        condition: service_healthy
   postgres:
     image: postgres:18-alpine
     restart: unless-stopped

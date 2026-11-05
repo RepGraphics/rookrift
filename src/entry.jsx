@@ -7,6 +7,7 @@ import './styles.css';
 
 const Dashboard=lazy(()=>import('./main').then(module=>({default:module.App})));
 const Authentication=lazy(()=>import('./main').then(module=>({default:module.AuthPage})));
+const PasswordReset=lazy(()=>import('./main').then(module=>({default:module.PasswordResetPage})));
 const Community=lazy(()=>import('./community-ui').then(module=>({default:module.CommunityPortal})));
 const Administration=lazy(()=>import('./platform-admin-ui').then(module=>({default:module.AdminApp})));
 
@@ -15,6 +16,7 @@ export function SiteRouter({pathname=window.location.pathname,search=window.loca
  let content;
  if(route.page==='landing')return <LandingPage demo={demo}/>;
  if(route.page==='login'||route.page==='register')content=<Authentication register={route.page==='register'}/>;
+ else if(route.page==='reset-password')content=<PasswordReset/>;
  else if(route.page==='dashboard')content=<Dashboard/>;
  else if(route.page==='admin')content=<Administration/>;
  else if(route.page==='community')content=<Community slug={route.slug} demo={demo}/>;

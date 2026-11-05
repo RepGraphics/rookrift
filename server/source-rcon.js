@@ -40,7 +40,7 @@ export function sourceRcon({ host, port, password, command, timeout = 7000 }) {
           output.push(packet.subarray(12, packet.length - 2)); clearTimeout(idle);
           if (!markerSent) { markerSent = true; socket.write(encode(3, 2, '')); }
           idle = setTimeout(() => finish(), 200);
-        } else if (authenticated && id === 3 && type === 0 && output.length) finish();
+        } else if (authenticated && id === 3 && type === 0) finish();
       }
     });
   });
