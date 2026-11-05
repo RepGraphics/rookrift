@@ -25,7 +25,7 @@ async function fixture(t){
   const community=createCommunity(db),site={slug:'public-outpost',title:'The Outpost',summary:'A place to play',rules:'Respect the rules.',discord_url:'https://discord.gg/outpost',enabled:true,applications_open:true,questions:['Why would you like to join?'],server_ids:[server.id]};
   await community.saveSite('w',site);
   const app=createApp({db,vault,service,billing:{ready:false},env:{APP_URL:'http://localhost:3000'}}),http=app.listen(0,'127.0.0.1');await once(http,'listening');
-  t.after(async()=>{http.closeAllConnections();await new Promise(resolve=>http.close(resolve));await db.close();});
+  t.after(async()=>{http.closeAllConnections();await new Promise(resolve=>http.close(resolve));try{await app.locals.flushAuditWrites();}finally{await db.close();}});
   const base='http://127.0.0.1:'+http.address().port;
   const request=async(path,method='GET',body,user='owner',verify=true)=>{const response=await fetch(base+'/api'+path,{method,headers:{...(user?{Cookie:'rookrift_session='+user}:{}),...(verify?{Origin:'http://localhost:3000','X-CSRF-Token':user+'-csrf'}:{}),'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});return{status:response.status,body:await response.json(),headers:response.headers};};
   const application=async(user='applicant',kind='join')=>{const page=(await request('/public/communities/public-outpost','GET',null,user)).body;return request('/public/communities/public-outpost/applications','POST',{kind,game:'asa',identifier:'self-reported-EOS-ID',form_revision:page.site.form_revision,rules_accepted:true,answers:['I enjoy exploring.']},user);};

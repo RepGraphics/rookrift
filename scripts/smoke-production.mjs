@@ -23,7 +23,8 @@ try{
   await waitForCache('ready');assert.equal((await fetch(base)).status,200);assert.equal((await fetch(base+'/api/bootstrap')).status,401);
   const second=await run([...settings,image]);assert.equal(await docker(['wait',second]),'1','Duplicate runtime should stop instead of starting another scheduler.');
   assert.equal(await docker(['run','--rm','--network',network,...settings,'--entrypoint','node',image,'scripts/database.mjs','migrate']),'PostgreSQL schema is up to date.');
+  await docker(['exec',app,'node','--check','scripts/link-agent.mjs']);
   await docker(['stop',redis]);await waitForCache('degraded');assert.equal((await fetch(base+'/api/health')).status,200);
-  console.log('Production Docker smoke passed: PostgreSQL migrations, authenticated Redis, readiness, duplicate-runtime rejection, packaged migration CLI and Redis outage fallback.');
+  console.log('Production Docker smoke passed: PostgreSQL migrations, authenticated Redis, readiness, duplicate-runtime rejection, packaged migration CLI/link agent and Redis outage fallback.');
 }catch(error){console.error(error.message);process.exitCode=1;}
 finally{for(const id of containers.reverse())await docker(['rm','-f','-v',id]).catch(()=>{});if(madeNetwork)await docker(['network','rm',network]).catch(()=>{});}
