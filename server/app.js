@@ -1,4 +1,5 @@
 import {legalConfig} from '../shared/legal.js';
+import {avatarImage} from './avatars.js';
 import {createEmail} from './email.js';
 import {createPasswordLogin} from './password-login.js';
 import {createAccountDeletion} from './account-deletion.js';
@@ -120,6 +121,7 @@ export function createApp({
   });
   app.post('/api/webhooks/community-stripe',express.raw({type:'application/json',limit:'1mb'}),async(req,res)=>{await store.webhook(req.body,req.headers['stripe-signature']);res.json({received:true});});
   app.use('/api/community/site',express.json({limit:'5mb'}));
+  app.use('/api/account/profile',express.json({limit:'5mb'}));
   app.use(express.json({
     limit: '64kb'
   }), cookieParser());
@@ -240,7 +242,7 @@ export function createApp({
       await db.prepare('UPDATE users SET discord_id=?,avatar=COALESCE(avatar,?) WHERE id=?').run(user.id, user.avatar || null, linkRow.user_id);
       res.redirect(origin + '/dashboard?account=discord-linked'); return;
     }
-    await db.prepare('INSERT INTO users(id,name,avatar,access_token,discord_id) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,avatar=excluded.avatar,access_token=excluded.access_token,discord_id=excluded.discord_id').run(user.id, user.global_name || user.username, user.avatar || null, vault.encrypt(token.access_token), user.id);
+    await db.prepare("INSERT INTO users(id,name,avatar,access_token,discord_id) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,avatar=CASE WHEN users.avatar LIKE 'data:image/%' THEN users.avatar ELSE excluded.avatar END,access_token=excluded.access_token,discord_id=excluded.discord_id").run(user.id, user.global_name || user.username, user.avatar || null, vault.encrypt(token.access_token), user.id);
     const returnPath=accountReturn(req.cookies.rookrift_return)||'/dashboard';
     if(!returnPath.startsWith('/c/'))await ensurePersonalWorkspace(db,user.id);
     const session = randomBytes(32).toString('hex'),
@@ -299,7 +301,7 @@ export function createApp({
   app.use('/api/public',async(req,res,next)=>{
     res.set('Cache-Control','no-store');
     const token=req.cookies.rookrift_session;
-    req.visitor=token?await db.prepare('SELECT u.id,u.name,s.csrf FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>? AND u.deleting_at IS NULL AND NOT EXISTS(SELECT 1 FROM suspended_users x WHERE x.user_id=u.id)').get(hash(token),Date.now()):null;
+    req.visitor=token?await db.prepare('SELECT u.id,u.name,u.avatar,u.discord_id,s.csrf FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>? AND u.deleting_at IS NULL AND NOT EXISTS(SELECT 1 FROM suspended_users x WHERE x.user_id=u.id)').get(hash(token),Date.now()):null;
     if(!['GET','HEAD','OPTIONS'].includes(req.method)){
       if(!req.visitor){res.status(401).json({error:'Sign in to continue.'});return;}
       if(req.get('Origin')!==origin||req.get('X-CSRF-Token')!==req.visitor.csrf){res.status(403).json({error:'Request verification failed. Refresh the community page.'});return;}
@@ -332,7 +334,8 @@ export function createApp({
     }
     req.auth = session;
     res.set('Cache-Control', 'no-store');
-    req.user = await db.prepare(`SELECT id,name,avatar,deleting_at,EXISTS(SELECT 1 FROM platform_admins p WHERE p.user_id=users.id) AS platform_admin,
+    const avatarColumn=req.path.startsWith('/account/avatars/')?'NULL AS avatar':'avatar';
+    req.user = await db.prepare(`SELECT id,name,username,${avatarColumn},discord_id,deleting_at,EXISTS(SELECT 1 FROM platform_admins p WHERE p.user_id=users.id) AS platform_admin,
       EXISTS(SELECT 1 FROM suspended_users s WHERE s.user_id=users.id) AS suspended FROM users WHERE id=?`).get(session.user_id);
     if(!req.user){res.status(401).json({error:'Sign in to continue.'});return;}
     if(req.user.deleting_at&&!['GET','HEAD','OPTIONS'].includes(req.method)&&!req.path.startsWith('/account/deletion')){res.status(409).json({error:'Account deletion is in progress.'});return;}
@@ -656,6 +659,17 @@ export function createApp({
   app.post('/api/account/passkeys', async (req, res) => res.json(await accountService.registerPasskey(req.user.id, req.body)));
   app.delete('/api/account/passkeys/:id', async (req, res) => res.json(await accountService.removePasskey(req.user.id, req.params.id)));
   app.get('/api/platform', async (req,res)=>res.set('Cache-Control','no-store').json(await platformAdmin.overview(req.user)));
+  app.get('/api/account/avatars/:userId',async(req,res)=>{
+    const target=req.params.userId;
+    if(!/^[a-z0-9_-]{1,128}$/i.test(target)){res.status(404).end();return;}
+    const allowed=target===req.user.id||req.user.platform_admin||await db.prepare('SELECT 1 FROM workspace_members m JOIN workspaces w ON w.id=m.workspace_id WHERE w.owner_id=? AND w.closed_at IS NULL AND m.user_id=? LIMIT 1').get(req.user.id,target);
+    if(!allowed){res.status(404).end();return;}
+    const user=await db.prepare('SELECT avatar FROM users WHERE id=? AND deleting_at IS NULL').get(target),image=avatarImage(user?.avatar);
+    if(!image){res.status(404).end();return;}
+    res.set({'Cache-Control':'private, no-cache','ETag':image.etag,'Content-Type':image.type,'X-Content-Type-Options':'nosniff'});
+    if(req.get('If-None-Match')?.split(',').some(tag=>tag.trim()==='*'||tag.trim().replace(/^W\//,'')===image.etag)){res.status(304).end();return;}
+    res.send(image.bytes);
+  });
   app.get('/api/platform/bootstrap', async (req,res)=>res.set('Cache-Control','no-store').json({...await platformAdmin.overview(req.user),csrf:req.auth.csrf}));
   app.patch('/api/platform/settings', async (req,res)=>res.json(await platformAdmin.updateSettings(req.user,req.body)));
   app.get('/api/platform/email',async(req,res)=>res.json(await email.settings()));

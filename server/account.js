@@ -3,6 +3,7 @@ import { generateRegistrationOptions, verifyRegistrationResponse, generateAuthen
 import { hash, hashPassword, verifyPassword } from './crypto.js';
 import {createEmail} from './email.js';
 import {withAccountLock,assertAccountOpen} from './account-lock.js';
+import {presentUser,avatarImage} from './avatars.js';
 
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
 const base32 = value => {const alphabet='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';let bits=0,buffer=0,result='';for(const byte of value){buffer=(buffer<<8)|byte;bits+=8;while(bits>=5){bits-=5;result+=alphabet[(buffer>>>bits)&31];}}if(bits)result+=alphabet[(buffer<<(5-bits))&31];return result;};
@@ -16,7 +17,7 @@ const hotp = (secret, counter) => {
 const totpValid = (secret, code) => [ -1, 0, 1 ].some(offset => hotp(secret, Math.floor(Date.now() / 30000) + offset) === String(code).trim());
 const profileImage = value => {
   if (value == null || value === '') return null;
-  if (typeof value !== 'string' || !/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(value) || Buffer.byteLength(value, 'utf8') > 4 * 1024 * 1024) fail('Use a PNG, JPEG, or WebP profile image up to 3 MB.');
+  if (!avatarImage(value)) fail('Use a PNG, JPEG, or WebP profile image up to 3 MB.');
   return value;
 };
 
@@ -32,7 +33,7 @@ export function createAccount(db, vault, env, billing, providedEmail) {
     const local = await db.prepare('SELECT email FROM local_accounts WHERE user_id=?').get(userId);
     const safe = await ensureSecurity(userId);
     const workspaces = await db.prepare('SELECT id,name,plan,subscription_status,created_at,customer_id FROM workspaces WHERE owner_id=? ORDER BY created_at').all(userId);
-    return { profile: { ...user, email: local?.email || null, discord_linked: Boolean(user.discord_id) }, security: { totp_enabled: Boolean(safe.totp_enabled), passkeys: await passkeys(userId) }, billing: await billing.accountHistory(workspaces) };
+    return { profile: { ...presentUser(user), email: local?.email || null, discord_linked: Boolean(user.discord_id) }, security: { totp_enabled: Boolean(safe.totp_enabled), passkeys: await passkeys(userId) }, billing: await billing.accountHistory(workspaces) };
   };
   const challenge = async (userId, kind, value) => { await db.prepare('DELETE FROM account_challenges WHERE user_id=? OR expires_at<?').run(userId, Date.now()); const id = randomUUID(); await db.prepare('INSERT INTO account_challenges VALUES(?,?,?,?,?)').run(id, userId, value, kind, Date.now() + 300000); return id; };
   const consumeChallenge = async (id, userId, kind) => { const row = await db.prepare('DELETE FROM account_challenges WHERE id=? AND user_id IS NOT DISTINCT FROM ? AND kind=? AND expires_at>? RETURNING challenge').get(id, userId, kind, Date.now()); if (!row) fail('This security challenge has expired. Try again.', 400); return row.challenge; };
@@ -41,7 +42,7 @@ export function createAccount(db, vault, env, billing, providedEmail) {
     async updateProfile(userId, input) {
       const name = String(input.name || '').trim(), username = String(input.username || '').trim().toLowerCase();
       if (name.length < 2 || name.length > 80 || !/^[a-z0-9_]{3,30}$/.test(username)) fail('Enter a name and a username using 3–30 letters, numbers, or underscores.');
-      try { await db.prepare('UPDATE users SET name=?,username=?,avatar=? WHERE id=?').run(name, username, profileImage(input.avatar), userId); } catch (error) { if (error.code === '23505') fail('That username is already in use.', 409); throw error; }
+      try { if(input.avatar===undefined)await db.prepare('UPDATE users SET name=?,username=? WHERE id=?').run(name,username,userId);else await db.prepare('UPDATE users SET name=?,username=?,avatar=? WHERE id=?').run(name, username, profileImage(input.avatar), userId); } catch (error) { if (error.code === '23505') fail('That username is already in use.', 409); throw error; }
       return get(userId);
     },
     async updateEmail(userId, input) {

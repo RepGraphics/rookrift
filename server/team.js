@@ -1,4 +1,5 @@
 import {ensurePersonalWorkspace} from './workspaces.js';
+import {presentUser} from './avatars.js';
 import { randomUUID, randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { hash } from './crypto.js';
@@ -15,7 +16,7 @@ const memberSchema = z.object({
 export async function staffAudit(db,workspace,user,action,resource=null,server=null){return db.transaction(async()=>{const ws=await db.prepare('SELECT closed_at FROM workspaces WHERE id=? FOR KEY SHARE').get(workspace);if(!ws||ws.closed_at)return;const actor=await db.prepare('SELECT id FROM users WHERE id=? FOR KEY SHARE').get(user.id);await db.prepare('INSERT INTO staff_audit VALUES(?,?,?,?,?,?,?,?)').run(randomUUID(),workspace,actor?user.id:'deleted-account',actor?user.name:'Deleted member',action,resource,server,Date.now());});}
 export function createTeam(db) {
   const workspace = async id => await db.prepare('SELECT * FROM workspaces WHERE id=?').get(id);
-  const members = async id => await db.prepare('SELECT m.*,u.name FROM workspace_members m JOIN users u ON u.id=m.user_id WHERE m.workspace_id=? ORDER BY m.created_at,m.id').all(id);
+  const members = async (id,pictures=false) => await db.prepare('SELECT m.*,u.name'+(pictures?',u.avatar,u.discord_id':'')+' FROM workspace_members m JOIN users u ON u.id=m.user_id WHERE m.workspace_id=? ORDER BY m.created_at,m.id').all(id);
   async function validateScope(workspaceId, ids) {
     if (ids) for (const id of ids) if (!(await db.prepare('SELECT id FROM servers WHERE id=? AND workspace_id=?').get(id, workspaceId))) throw fail('Choose servers from this workspace.', 404);
   }
@@ -54,11 +55,11 @@ export function createTeam(db) {
       limit = effectivePlan(ws).staff;
     return {
       limit,
-      members: (await members(workspaceId)).map(({
+      members: (await members(workspaceId,true)).map(({
         server_ids,
         ...row
       }, index) => ({
-        ...row,
+        ...presentUser(row),
         server_ids: server_ids === null ? null : JSON.parse(server_ids),
         paused: index >= limit
       })),

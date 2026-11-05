@@ -3,6 +3,7 @@ import { effectivePlan, PLANS } from './plans.js';
 import { GAMES } from './games.js';
 import { maintenanceState } from './operations-state.js';
 import { canSeeServer } from './access.js';
+import {presentUser} from './avatars.js';
 export async function buildDashboard({
   db,
   req,
@@ -45,7 +46,7 @@ export async function buildDashboard({
   })}` : null;
   const scoped = rows => rows.filter(row => visible.has(row.server_id));
   return {
-    user: {...req.user, platform_admin: Boolean(req.user.platform_admin), impersonating: Boolean(req.auth.impersonating)},
+    user: {...presentUser(req.user), platform_admin: Boolean(req.user.platform_admin), impersonating: Boolean(req.auth.impersonating)},
     workspace: {
       id: ws.id,
       name: ws.name,game_focus:ws.game_focus,

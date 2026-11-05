@@ -135,3 +135,7 @@ Back up PostgreSQL before migration 18. It adds the SMTP outbox and expiring pas
 Platform administrators can configure SMTP, enable transactional notifications and send a test to their own account in **Global settings → Email & SMTP**. These encrypted settings apply immediately and override SMTP environment defaults. Delivery requires actual provider credentials and a permitted sender. Sales notifications default off and currently cover verified Stripe membership invoices and Stripe Connect store payments. See [email and authentication](EMAIL-AND-AUTHENTICATION.md) for settings, retries, retention and provider limitations.
 
 The sign-in page now verifies email/password before displaying an authenticator code prompt. Existing authenticator accounts retain their secrets. Password recovery is available at `/forgot-password`; links last one hour and a successful reset revokes sessions and pending sign-in challenges.
+
+## Release 0.13.1 account pictures
+
+This update reuses the existing user picture column and schema 18. Profile uploads accept a 5 MB request envelope with a 3 MB decoded image limit. Ensure any front proxy permits that route's body size. Uploaded images use an authenticated, privately revalidated endpoint; no public bucket or extra volume is required. Discord avatar hashes are resolved correctly and custom uploads survive Discord sign-in. See [account profiles](ACCOUNT-PROFILES.md) for display locations and access rules.

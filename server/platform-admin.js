@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { hash } from './crypto.js';
 import { z } from 'zod';
 import { PLANS } from './plans.js';
+import {presentUser} from './avatars.js';
 
 const fail = (message, status = 403) => Object.assign(new Error(message), { status });
 
@@ -11,7 +12,7 @@ export function createPlatformAdmin(db, community, vault, env = process.env) {
   };
   async function overview(user) {
     requireRoot(user);
-    const users = await db.prepare(`SELECT u.id,u.name,u.avatar,EXISTS(SELECT 1 FROM platform_admins p WHERE p.user_id=u.id) AS platform_admin,
+    const users = await db.prepare(`SELECT u.id,u.name,u.avatar,u.discord_id,EXISTS(SELECT 1 FROM platform_admins p WHERE p.user_id=u.id) AS platform_admin,
       EXISTS(SELECT 1 FROM suspended_users s WHERE s.user_id=u.id) AS suspended,u.access_token<>'' AS discord_connected,
       a.email,a.created_at AS account_created_at,
       (SELECT count(*) FROM workspaces w WHERE w.owner_id=u.id) AS workspaces,
@@ -26,7 +27,7 @@ export function createPlatformAdmin(db, community, vault, env = process.env) {
     })));
     const stored=await db.prepare('SELECT key FROM platform_settings').all();
     const keys=new Set(stored.map(row=>row.key));
-    return { users, workspaces:details, settings: {
+    return { user:presentUser(user),users:users.map(presentUser), workspaces:details, settings: {
       discord_client_id: {configured:Boolean(env.DISCORD_CLIENT_ID||keys.has('discord_client_id'))},
       discord_client_secret: {configured:Boolean(env.DISCORD_CLIENT_SECRET||keys.has('discord_client_secret'))},
       discord_bot_token: {configured:Boolean(env.DISCORD_BOT_TOKEN||keys.has('discord_bot_token'))},
