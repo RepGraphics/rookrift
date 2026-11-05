@@ -1,3 +1,4 @@
+import {assertAccountOpen,withAccountLocks} from './account-lock.js';
 import {parseActions,publicDelivery,enqueueDelivery,refreshDeliveryStatus} from './store-delivery-state.js';
 import {deliveryIdentifier} from '../shared/store-delivery.js';
 import Stripe from 'stripe';
@@ -44,7 +45,7 @@ export function createCommunityStore(db,env=process.env,injectedStripe){
   if(status==='paid'&&row.payment_status!=='paid')await notify(db,row.workspace_id,'Store payment received',row.title+(parseActions(row.delivery_actions).length?' has purchase actions queued.':' is awaiting community staff delivery.'),'success','community',row.id);
   const current=await owned(row.workspace_id,row.id);await enqueueDelivery(db,current);await refreshDeliveryStatus(db,row.workspace_id,row.id);return owned(row.workspace_id,row.id);
  }
- return{
+ const api={
   ready,
   setActionsValidator(fn){validateActions=fn;},
   async verifyForDelivery(ws,id){return db.withWorkspaceLock(ws,async()=>syncOrder(await owned(ws,id)));},
@@ -59,12 +60,20 @@ export function createCommunityStore(db,env=process.env,injectedStripe){
   async refreshAccount(ws){const row=await store(ws);await account(row);return this.manage(ws);},
   async publicPage(value,user){const community=await site(value),row=await store(community.workspace_id),workspace=await db.prepare('SELECT * FROM workspaces WHERE id=?').get(row.workspace_id);if(!row.enabled)fail('This community store is closed.',404);const products=(await db.prepare('SELECT p.*,c.name AS category_name FROM store_products p LEFT JOIN store_categories c ON c.id=p.category_id WHERE p.workspace_id=? AND p.archived=0 ORDER BY p.created_at,p.id').all(row.workspace_id)).slice(0,limitFor(effectivePlan(workspace))).filter(p=>p.published).map(p=>({id:p.id,title:p.title,description:p.description,price:p.price,game:p.game,image_url:p.image_url,category_id:p.category_id,category_name:p.category_name||'',sort_order:p.sort_order,created_at:p.created_at,delivery:publicDelivery(parseActions(p.delivery_actions))}));const categories=(await db.prepare('SELECT id,name,sort_order FROM store_categories WHERE workspace_id=? ORDER BY sort_order,lower(name),id').all(row.workspace_id)).filter(c=>products.some(p=>p.category_id===c.id));const checkoutAvailable=products.some(p=>p.price===0)||(row.payment_provider==='stripe'?ready&&Boolean(row.stripe_account_id)&&Boolean(row.charges_enabled):Boolean(row.payment_checkout_url));return{enabled:true,currency:row.currency,delivery_note:row.delivery_note,refund_policy:row.refund_policy,payment_provider:row.payment_provider,checkout_available:checkoutAvailable,discord_connected:Boolean(await discordRecipient(user)),categories,products,orders:user?await this.buyerOrders(value,user):[]};},
   async buyerOrders(value,user){if(!user)fail('Sign in to view your orders.',401);const community=await site(value,false);return(await db.prepare('SELECT * FROM store_orders WHERE workspace_id=? AND user_id=? ORDER BY created_at DESC LIMIT 50').all(community.workspace_id,user.id)).map(buyerOrder);},
+  async stopCheckoutsForDeletion(userId,workspaces){
+   const orders=await db.prepare("SELECT * FROM store_orders WHERE payment_status='pending' AND (user_id=? OR workspace_id IN (SELECT id FROM workspaces WHERE owner_id=?))").all(userId,userId);
+   for(const order of orders){
+    if(order.payment_provider==='stripe'&&!order.checkout_session_id&&order.checkout_attempted_at&&Date.now()<order.created_at+3660000)fail('A recent store checkout could not be verified. Refresh its order or wait for its one-hour checkout link to expire before retrying deletion.',409);
+    if(order.payment_provider!=='stripe'&&order.checkout_url)fail('Close pending external store checkouts with the payment provider before account deletion. Contact support with the order reference.',409);
+    if(order.checkout_session_id){requireReady();const session=await call(()=>stripe.checkout.sessions.retrieve(order.checkout_session_id,{}, {stripeAccount:order.stripe_account_id}));if(session.status==='open')await call(()=>stripe.checkout.sessions.expire(order.checkout_session_id,{}, {stripeAccount:order.stripe_account_id}));else if(session.status==='complete')await db.withWorkspaceLock(order.workspace_id,()=>syncOrder(order));}
+   }
+  },
   async checkout(value,user,input){
    if(!user)fail('Sign in to continue.',401);
    const v=z.object({product_id:z.string().uuid(),identifier:z.string().trim().max(100).default(''),account_id:z.string().uuid().nullable().default(null),request_id:z.string().uuid()}).strict().parse(input),community=await site(value);
    // Commit the order reservation before contacting Stripe. An uncertain request
    // must retain the same order and idempotency key when the buyer retries.
-   const order=await db.withWorkspaceLock(community.workspace_id,async()=>{
+   const order=await db.withWorkspaceLock(community.workspace_id,async()=>{await assertAccountOpen(db,user.id);const owner=await db.prepare('SELECT owner_id,closed_at FROM workspaces WHERE id=?').get(community.workspace_id);if(!owner||owner.closed_at)fail('This store is closed.',409);await assertAccountOpen(db,owner.owner_id);
     const row=await store(community.workspace_id);if(!row.enabled)fail('This community store is closed.',409);
     if(row.payment_provider==='stripe'){requireReady();const a=await account(row);if(!a.charges_enabled)fail('This community is not accepting payments yet.',409);}
     else if(!row.payment_checkout_url)fail('This community has not configured its selected payment provider yet.',503);
@@ -75,7 +84,10 @@ export function createCommunityStore(db,env=process.env,injectedStripe){
     try{await db.prepare('INSERT INTO store_orders(id,workspace_id,user_id,product_id,title,description,game,identifier,amount,currency,stripe_account_id,delivery_note,refund_policy,created_at,updated_at,image_url,category_name,delivery_actions,discord_user_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(v.request_id,row.workspace_id,user.id,p.id,p.title,p.description,p.game,identifier,p.price,row.currency,row.stripe_account_id||'external',row.delivery_note,row.refund_policy,Date.now(),Date.now(),product.image_url,p.category_name,JSON.stringify(actions),recipient);await db.prepare('UPDATE store_orders SET payment_provider=? WHERE id=?').run(row.payment_provider,v.request_id);}catch(error){if(error.code==='23505')fail('Checkout request reference is already in use.',409);throw error;}
     return owned(row.workspace_id,v.request_id);
    });
-   return db.withWorkspaceLock(order.workspace_id,async()=>{
+   // Persist the attempt outside the provider transaction: a lost response can
+   // still leave a live Stripe link even when that transaction rolls back.
+   await db.prepare("UPDATE store_orders SET checkout_attempted_at=COALESCE(checkout_attempted_at,?) WHERE id=? AND payment_status='pending' AND amount>0 AND payment_provider='stripe' AND checkout_session_id IS NULL").run(Date.now(),order.id);
+   return db.withWorkspaceLock(order.workspace_id,async()=>{await assertAccountOpen(db,user.id);const owner=await db.prepare('SELECT owner_id,closed_at FROM workspaces WHERE id=?').get(order.workspace_id);if(!owner||owner.closed_at)fail('This store is closed.',409);await assertAccountOpen(db,owner.owner_id);
     const current=await owned(order.workspace_id,order.id);if(current.payment_status!=='pending')fail('This checkout is no longer pending.',409);
     if(current.amount===0){await db.prepare("UPDATE store_orders SET payment_status='paid',fulfillment_status='pending',updated_at=? WHERE id=?").run(Date.now(),current.id);return{order_id:current.id,free:true};}
     if(current.checkout_url){try{const parsed=new URL(current.checkout_url);if(parsed.protocol!=='https:')throw new Error();}catch{fail('The configured payment URL is invalid.',503);}return{order_id:current.id,url:current.checkout_url};}
@@ -90,4 +102,12 @@ export function createCommunityStore(db,env=process.env,injectedStripe){
   async webhook(body,signature){requireReady();let e;try{e=stripe.webhooks.constructEvent(body,signature,env.STRIPE_CONNECT_WEBHOOK_SECRET);}catch{fail('Invalid community payment webhook signature.',400);}if(!e.account)return;if(await db.prepare('SELECT id FROM store_stripe_events WHERE id=?').get(e.id))return;const row=await db.prepare('SELECT * FROM community_stores WHERE stripe_account_id=?').get(e.account);if(!row)return;await db.withWorkspaceLock(row.workspace_id,async()=>{if(await db.prepare('SELECT id FROM store_stripe_events WHERE id=?').get(e.id))return;const object=e.data.object;if(e.type==='account.updated'&&object.id===e.account)await db.prepare('UPDATE community_stores SET charges_enabled=? WHERE workspace_id=?').run(Number(object.charges_enabled===true),row.workspace_id);else{let order;if(e.type.startsWith('checkout.session.')){order=await db.prepare('SELECT * FROM store_orders WHERE checkout_session_id=? AND stripe_account_id=?').get(object.id,e.account);if(!order&&object.metadata?.order_id&&object.metadata?.workspace_id===row.workspace_id){const reserved=await db.prepare('SELECT * FROM store_orders WHERE id=? AND workspace_id=? AND stripe_account_id=?').get(object.metadata.order_id,row.workspace_id,e.account);if(reserved&&!reserved.checkout_session_id){await db.prepare('UPDATE store_orders SET checkout_session_id=? WHERE id=?').run(object.id,reserved.id);order={...reserved,checkout_session_id:object.id};}}}else if(['charge.refunded','charge.dispute.created','charge.dispute.closed'].includes(e.type)){const intent=typeof object.payment_intent==='string'?object.payment_intent:object.payment_intent?.id;if(intent)order=await db.prepare('SELECT * FROM store_orders WHERE payment_intent_id=? AND stripe_account_id=?').get(intent,e.account);}if(order)await syncOrder(order);}await db.prepare('INSERT INTO store_stripe_events VALUES(?,?) ON CONFLICT DO NOTHING').run(e.id,Date.now());});},
   async reconcile(){if(!ready)return;const rows=await db.prepare("SELECT * FROM store_orders WHERE checkout_session_id IS NOT NULL AND payment_status IN ('pending','paid') AND created_at>? ORDER BY updated_at LIMIT 25").all(Date.now()-90*86400000);for(const row of rows)await db.withWorkspaceLock(row.workspace_id,()=>syncOrder(row)).catch(()=>{});await db.prepare('DELETE FROM store_stripe_events WHERE created_at<?').run(Date.now()-90*86400000);}
  };
+ const checkout=api.checkout.bind(api);
+ api.checkout=async(value,user,input)=>{
+  if(!user)fail('Sign in to continue.',401);
+  const community=await site(value),workspace=await db.prepare('SELECT owner_id FROM workspaces WHERE id=?').get(community.workspace_id);
+  if(!workspace)fail('This store is closed.',409);
+  return withAccountLocks([user.id,workspace.owner_id],()=>checkout(value,user,input));
+ };
+ return api;
 }

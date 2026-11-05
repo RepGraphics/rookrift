@@ -109,7 +109,7 @@
 .portal-server h3 {font-size:20px;line-height:1.4;}
 .portal-post h3 {font-size:21px;line-height:1.4;}
 .portal-demo {margin-top:18px;background:transparent;color:var(--muted);font-size:11px;}
-.portal-footer {align-items:center;margin-top:60px;}
+.portal-footer {align-items:center;flex-wrap:wrap;margin-top:60px;}
 .community-logo-preview {display:block;width:88px;height:88px;object-fit:contain;border:1px solid var(--line);border-radius:10px;margin:12px 0;background:var(--surface-alt);}
 .member-link-panel {padding:30px;margin:24px 0 34px;}
 .member-step {display:flex;align-items:flex-start;gap:16px;margin-bottom:24px;}

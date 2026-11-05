@@ -16,10 +16,10 @@ export function createPlatformAdmin(db, community, vault, env = process.env) {
       a.email,a.created_at AS account_created_at,
       (SELECT count(*) FROM workspaces w WHERE w.owner_id=u.id) AS workspaces,
       (SELECT count(*) FROM sessions s WHERE s.user_id=u.id AND s.expires_at>?) AS active_sessions
-      FROM users u LEFT JOIN local_accounts a ON a.user_id=u.id ORDER BY u.name,u.id`).all(Date.now());
+      FROM users u LEFT JOIN local_accounts a ON a.user_id=u.id WHERE u.id<>'deleted-account' ORDER BY u.name,u.id`).all(Date.now());
     const workspaces = await db.prepare(`SELECT w.id,w.name,w.plan,w.subscription_status,w.created_at,w.guild_id,w.alert_channel_id,w.alerts_enabled,w.failure_threshold,u.id AS owner_id,u.name AS owner_name,
       (SELECT count(*) FROM servers s WHERE s.workspace_id=w.id) AS servers
-      FROM workspaces w JOIN users u ON u.id=w.owner_id ORDER BY w.created_at DESC,w.id`).all();
+      FROM workspaces w JOIN users u ON u.id=w.owner_id WHERE w.closed_at IS NULL ORDER BY w.created_at DESC,w.id`).all();
     const details=await Promise.all(workspaces.map(async workspace=>({
       ...workspace,
       site: await db.prepare('SELECT slug,title,summary,rules,discord_url,enabled,applications_open,show_connection_details,questions,server_ids FROM community_sites WHERE workspace_id=?').get(workspace.id)
@@ -52,6 +52,7 @@ export function createPlatformAdmin(db, community, vault, env = process.env) {
     overview,
     async suspend(user, id, suspended) {
       requireRoot(user);
+      if(id==='deleted-account')throw fail('This account is deleted.',404);
       if (id === user.id) throw fail('The platform root account cannot be suspended.', 400);
       const target = await db.prepare('SELECT id FROM users WHERE id=?').get(id);
       if (!target) throw fail('User not found.', 404);
@@ -87,7 +88,7 @@ export function createPlatformAdmin(db, community, vault, env = process.env) {
         alerts_enabled:z.boolean(),
         failure_threshold:z.number().int().min(1).max(5)
       }).strict().parse(input);
-      const exists=await db.prepare('SELECT id FROM workspaces WHERE id=?').get(id);
+      const exists=await db.prepare('SELECT id FROM workspaces WHERE id=? AND closed_at IS NULL').get(id);
       if(!exists)throw fail('Workspace not found.',404);
       await db.prepare('UPDATE workspaces SET name=?,plan=?,subscription_status=?,guild_id=?,alert_channel_id=?,alerts_enabled=?,failure_threshold=? WHERE id=?').run(value.name,value.plan,value.subscription_status,value.guild_id,value.alert_channel_id,Number(value.alerts_enabled),value.failure_threshold,id);
       return {ok:true};

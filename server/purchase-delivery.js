@@ -51,7 +51,7 @@ export function createPurchaseDelivery(db,store,service,rewards){
    const purchase=await store.verifyForDelivery(job.workspace_id,job.order_id);if(purchase.payment_status!=='paid'){await finish(job,'cancelled','Payment is no longer paid. Staff review required.');return;}
    const claim=async server=>db.withWorkspaceLock(job.workspace_id,async()=>{
     const current=await order(job.workspace_id,job.order_id),j=await db.prepare('SELECT * FROM store_delivery_jobs WHERE id=? FOR UPDATE').get(job.id);
-    if(j.status!=='pending'||current.payment_status!=='paid')fail('This delivery is no longer pending.',409);
+    const closing=await db.prepare('SELECT 1 FROM users WHERE deleting_at IS NOT NULL AND (id=? OR id=(SELECT owner_id FROM workspaces WHERE id=?))').get(current.user_id,job.workspace_id);if(closing||j.status!=='pending'||current.payment_status!=='paid')fail('This delivery is no longer pending.',409);
     if(server&&fingerprint(server)!==payload.target_fingerprint)fail('The server connection changed. Staff review required.',409);
     const ws=await db.prepare('SELECT guild_id FROM workspaces WHERE id=?').get(job.workspace_id);if(payload.type==='discord_role'&&ws.guild_id!==payload.guild_id)fail('The linked Discord community changed.',409);
     await db.prepare("UPDATE store_delivery_jobs SET status='executing',attempts=attempts+1,updated_at=? WHERE id=?").run(Date.now(),job.id);

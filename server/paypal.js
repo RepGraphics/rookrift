@@ -6,7 +6,7 @@ export function createPayPal(env = process.env) {
   let tokenExpires = 0;
   const request = async (path, options = {}) => {
     if (!ready) throw Object.assign(new Error('PayPal is not configured.'), { status: 503 });
-    const response = await fetch(apiBase(env) + path, options);
+    const response = await fetch(apiBase(env) + path, {...options,signal:AbortSignal.timeout(10000)});
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw Object.assign(new Error(data.message || data.name || 'PayPal request failed.'), { status: response.status >= 500 ? 502 : 400 });
     return data;
@@ -31,6 +31,7 @@ export function createPayPal(env = process.env) {
   };
   return {
     ready,
+    async getSubscription(id){return api('/v1/billing/subscriptions/'+encodeURIComponent(id));},
     async createOrder({ reference, amount, currency, returnUrl, cancelUrl }) {
       const order = await api('/v2/checkout/orders', { method: 'POST', headers: { 'PayPal-Request-Id': reference }, body: JSON.stringify({
         intent: 'CAPTURE',

@@ -5,6 +5,7 @@ import {LandingPage} from './landing-page';
 import {siteRoute} from '../shared/navigation';
 import './styles.css';
 
+const Legal=lazy(()=>import('./legal-page').then(module=>({default:module.LegalPage})));
 const Dashboard=lazy(()=>import('./main').then(module=>({default:module.App})));
 const Authentication=lazy(()=>import('./main').then(module=>({default:module.AuthPage})));
 const PasswordReset=lazy(()=>import('./main').then(module=>({default:module.PasswordResetPage})));
@@ -15,7 +16,8 @@ export function SiteRouter({pathname=window.location.pathname,search=window.loca
  const route=siteRoute(pathname,search,hash),demo=__DEMO__;
  let content;
  if(route.page==='landing')return <LandingPage demo={demo}/>;
- if(route.page==='login'||route.page==='register')content=<Authentication register={route.page==='register'}/>;
+ if(route.page==='legal')content=<Legal kind={route.kind} demo={demo}/>;
+ else if(route.page==='login'||route.page==='register')content=<Authentication register={route.page==='register'}/>;
  else if(route.page==='reset-password')content=<PasswordReset/>;
  else if(route.page==='dashboard')content=<Dashboard/>;
  else if(route.page==='admin')content=<Administration/>;

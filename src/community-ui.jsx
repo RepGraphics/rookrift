@@ -1,3 +1,4 @@
+import {LegalLinks} from './legal-links';
 import {CommunityIdentity,CommunityHero,CommunityThemeToggle} from './community-appearance';
 import {CommunityGameAccounts,ServerLinkingSettings} from './community-accounts';
 import {appearanceOf,communityTheme} from '../shared/community-theme';
@@ -84,7 +85,7 @@ export function CommunityPortal({slug,demo=false}){
     {activeTab==='events'&&<section className="portal-content"><h2>Make time for your tribe</h2><p className="muted">Times shown in {Intl.DateTimeFormat().resolvedOptions().timeZone}. RSVP names are private.</p>{events.map(event=><article className="panel portal-post" key={event.id}><span className="eyebrow">{event.cancelled?'CANCELLED':event.ends_at<=Date.now()?'PAST EVENT':'COMMUNITY EVENT'}</span><h3>{event.title}</h3><p><strong>{date(event.starts_at)}</strong> – {date(event.ends_at)}</p><p className="community-prose">{event.body}</p><div className="community-record-actions"><span><Users size={16}/> {event.attendees} attending{event.capacity?' / '+event.capacity+' places':''}</span>{viewer?<Button secondary disabled={busy||(!event.attending&&(Boolean(event.cancelled)||event.starts_at<=Date.now()||Boolean(event.capacity&&event.attendees>=event.capacity)))} onClick={()=>action('/events/'+event.id+'/rsvp','POST',{attending:!event.attending},event.attending?'RSVP removed':'Your place is reserved')}>{event.attending?'Cancel my RSVP':event.capacity&&event.attendees>=event.capacity?'Event full':'Reserve a place'}</Button>:signIn}</div></article>)}{!events.length&&<Empty icon={CalendarDays} title="No events yet" detail="Your community's next gathering will appear here."/>}</section>}
     {activeTab==='rules'&&<section className="panel portal-post portal-content"><h2>Community rules</h2><p className="community-prose">{site.rules||'Community rules have not been published yet.'}</p></section>}
     {['join','staff'].includes(activeTab)&&<ApplicationSection kind={activeTab} site={site} viewer={viewer} applications={applications.filter(row=>row.kind===activeTab)} signIn={signIn} action={action} busy={busy}/>}
-    <footer className="portal-footer"><span>Powered by <a href="/">Rookrift</a></span><span>{appearance.footer_text}</span></footer>
+    <footer className="portal-footer"><span>Powered by <a href="/">Rookrift</a></span><LegalLinks/><span>{appearance.footer_text}</span></footer>
   </main></div>;
 }
 

@@ -119,3 +119,11 @@ For Discord role rewards, use the dashboard's updated bot invite to grant **Mana
 Startup applies migration 16, retaining saved accounts and adding server-bound codes and verification provenance. Generate new link codes after upgrading. No environment change is required for native ARK linking: it uses existing RCON connections independently of hosting consoles. Use **Community hub → Account linking** for diagnostics. Raw log text never directly proves player identity. See [account linking](ACCOUNT-LINKING.md) before configuring a trusted server extension or the optional log bridge.
 
 Community logos are included in the public DTO and uploaded images have a route-specific 5 MB JSON envelope (3 MB decoded image limit). Appearance is saved inside the existing draft/published design JSON. Existing page content is preserved; owners publish new styling explicitly. See [community customisation](COMMUNITY.md).
+
+## Release 0.12 legal pages and account deletion
+
+Back up PostgreSQL and retain the encryption key before applying migration 17. It adds account-deletion verification records, closing fences, closed workspace markers and durable checkout-attempt tracking. Deploy a single application replica with stop-first replacement. Startup applies the migration automatically; Redis requires no change.
+
+Public legal routes are `/terms`, `/refund-policy` and `/privacy-policy`. The supplied operator is Euphoria Development in the UK, using support@euphoriadevelopment.uk. Optional `LEGAL_*` environment fields are documented in `.env.example`. Supply the business contact address and review the policies, provider/transfer details, refund offer and backup retention before paid launch. Missing address information keeps a visible draft notice.
+
+My account now includes deletion after live verification that all owned memberships have been cancelled. Provider outages and unresolved external checkouts block closure. Cancellation scheduled with Stripe is accepted, but closure ends access immediately and does not refund payments. Password/passkey/Discord re-verification, existing 2FA, checkout fencing and executing-operation checks protect final deletion. No real hosted game server is destroyed. See [the deletion and retention guide](LEGAL-AND-ACCOUNT-DELETION.md) for financial records, restore procedures and manual privacy/refund requests.

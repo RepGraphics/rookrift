@@ -1,14 +1,16 @@
 const plans=new Set(['tribe','cluster']);
 export function communityReturn(value){return typeof value==='string'&&/^\/c\/[a-z0-9-]{3,48}(?:\?page=[a-z0-9-]{1,40})?$/.test(value)?value:null;}
-export function accountReturn(value){return communityReturn(value)||(typeof value==='string'&&/^\/dashboard(?:\?plan=(?:tribe|cluster))?$/.test(value)?value:null);}
+export function accountReturn(value){return communityReturn(value)||(typeof value==='string'&&/^\/dashboard(?:\?(?:plan=(?:tribe|cluster)|account=(?:deletion|delete-verified)))?$/.test(value)?value:null);}
 export function authDestination(search=''){
  const params=new URLSearchParams(search),community=communityReturn(params.get('return_to'));
  if(community)return community;
+ const account=accountReturn(params.get('return_to'));if(account?.includes('?account='))return account;
  const plan=params.get('plan');return '/dashboard'+(plans.has(plan)?'?plan='+plan:'');
 }
 export function siteRoute(pathname,search='',hash=''){
  const path=pathname.replace(/\/+$/,'')||'/',params=new URLSearchParams(search),community=path.match(/^\/c\/([a-z0-9-]{3,48})$/);
  if(community)return{page:'community',slug:community[1]};
+ const legal={'/terms':'terms','/terms-of-service':'terms','/refund-policy':'refund','/refunds':'refund','/privacy-policy':'privacy','/privacy':'privacy'};if(legal[path])return{page:'legal',kind:legal[path]};
  if(['/dashboard','/admin','/login','/register','/reset-password'].includes(path))return{page:path.slice(1)};
  if(path==='/'){
   // Retain links sent before the public homepage had its own route.

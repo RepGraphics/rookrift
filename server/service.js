@@ -53,6 +53,7 @@ export function createService(db, vault, transport = runRcon) {
     runningTasks = new Set();
   const workspace = async id => await db.prepare('SELECT * FROM workspaces WHERE id=?').get(id);
   async function getServer(workspaceId, serverId, enforce = true) {
+    const state=await db.prepare('SELECT w.closed_at,u.deleting_at FROM workspaces w JOIN users u ON u.id=w.owner_id WHERE w.id=?').get(workspaceId);if(!state||state.closed_at||state.deleting_at)throw Object.assign(new Error('This workspace is closing or closed.'),{status:409});
     const servers = await listServers(db, workspaceId),
       server = servers.find(s => s.id === serverId);
     if (!server) throw Object.assign(new Error('Server not found.'), {
@@ -78,6 +79,7 @@ export function createService(db, vault, transport = runRcon) {
   return {
     setBackupHandler(handler){requestBackup=handler;},
     getServer,
+    isBusy:id=>busy.has(id),
     getSchedule,
     async addServer(workspaceId, input) {
       return await db.withWorkspaceLock(workspaceId, async () => {
@@ -312,7 +314,7 @@ export function createService(db, vault, transport = runRcon) {
       }
     },
     async pollAll(notify = async () => {}) {
-      for (const ws of await db.prepare('SELECT * FROM workspaces').all()) {
+      for (const ws of await db.prepare('SELECT * FROM workspaces WHERE closed_at IS NULL').all()) {
         for (const server of (await listServers(db, ws.id)).slice(0, effectivePlan(ws).servers)) {
           try {
             await this.action(ws.id, server.id, 'status');

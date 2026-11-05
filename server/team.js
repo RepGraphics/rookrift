@@ -12,9 +12,7 @@ const memberSchema = z.object({
   role,
   server_ids: scope
 }).strict();
-export async function staffAudit(db, workspace, user, action, resource = null, server = null) {
-  await db.prepare('INSERT INTO staff_audit VALUES(?,?,?,?,?,?,?,?)').run(randomUUID(), workspace, user.id, user.name, action, resource, server, Date.now());
-}
+export async function staffAudit(db,workspace,user,action,resource=null,server=null){return db.transaction(async()=>{const ws=await db.prepare('SELECT closed_at FROM workspaces WHERE id=? FOR KEY SHARE').get(workspace);if(!ws||ws.closed_at)return;const actor=await db.prepare('SELECT id FROM users WHERE id=? FOR KEY SHARE').get(user.id);await db.prepare('INSERT INTO staff_audit VALUES(?,?,?,?,?,?,?,?)').run(randomUUID(),workspace,actor?user.id:'deleted-account',actor?user.name:'Deleted member',action,resource,server,Date.now());});}
 export function createTeam(db) {
   const workspace = async id => await db.prepare('SELECT * FROM workspaces WHERE id=?').get(id);
   const members = async id => await db.prepare('SELECT m.*,u.name FROM workspace_members m JOIN users u ON u.id=m.user_id WHERE m.workspace_id=? ORDER BY m.created_at,m.id').all(id);
@@ -23,7 +21,7 @@ export function createTeam(db) {
   }
   async function access(workspaceId, userId) {
     const ws = await workspace(workspaceId);
-    if (!ws) return null;
+    if (!ws||ws.closed_at) return null;
     if (ws.owner_id === userId) return {
       role: 'owner',
       server_ids: null
@@ -38,7 +36,7 @@ export function createTeam(db) {
     };
   }
   async function listWorkspaces(userId) {
-    return (await Promise.all((await db.prepare('SELECT DISTINCT w.id,w.name,w.owner_id,w.created_at,w.game_focus FROM workspaces w LEFT JOIN workspace_members m ON m.workspace_id=w.id WHERE w.owner_id=? OR m.user_id=? ORDER BY w.created_at,w.id').all(userId, userId)).map(async ws => ({
+    return (await Promise.all((await db.prepare('SELECT DISTINCT w.id,w.name,w.owner_id,w.created_at,w.game_focus FROM workspaces w LEFT JOIN workspace_members m ON m.workspace_id=w.id WHERE (w.owner_id=? OR m.user_id=?) AND w.closed_at IS NULL ORDER BY w.created_at,w.id').all(userId, userId)).map(async ws => ({
       id: ws.id,
       name: ws.name,game_focus:ws.game_focus,
       ...(await access(ws.id, userId))
