@@ -26,7 +26,8 @@ export async function notify(db, workspace, title, detail, level = 'info', targe
   await db.prepare('INSERT INTO notifications VALUES(?,?,?,?,?,?,?,?,NULL) ON CONFLICT DO NOTHING').run(randomUUID(), workspace, title, detail.slice(0, 1000), level, target, key, Date.now());
 }
 export async function observeHealth(db, workspace, server, send, now = Date.now()) {
-  const maintenance = (await maintenanceState(db, server, now)).in_maintenance;
+  const plannedRestart=await db.prepare("SELECT 1 FROM workflow_runs WHERE server_id=? AND status IN ('queued','running','waiting') AND EXISTS(SELECT 1 FROM jsonb_array_elements(steps::jsonb) step WHERE step->>'type'='restart' AND step->>'status' IN ('executing','succeeded')) LIMIT 1").get(server.id);
+  const maintenance = Boolean(plannedRestart)||(await maintenanceState(db, server, now)).in_maintenance;
   const open = await db.prepare('SELECT * FROM incidents WHERE server_id=? AND resolved_at IS NULL').get(server.id);
   if (server.status === 'online') {
     await db.prepare('UPDATE servers SET failed_checks=0,failed_since=NULL WHERE id=?').run(server.id);

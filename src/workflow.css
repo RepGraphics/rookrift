@@ -1,0 +1,42 @@
+.workflow-page>.tabs {margin-bottom:24px;}
+.workflow-presets {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin:24px 0 30px;}
+.workflow-presets>button {padding:22px;text-align:left;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--text);display:flex;flex-direction:column;align-items:flex-start;gap:12px;cursor:pointer;}
+.workflow-presets>button:hover {border-color:var(--accent);background:var(--surface-alt);}
+.workflow-presets strong {font-size:15px;color:var(--heading);}
+.workflow-presets span {font-size:12px;line-height:1.8;color:var(--muted);}
+.workflow-presets small {font-weight:600;color:var(--primary);margin-top:auto;}
+.workflow-list {display:grid;gap:16px;}
+.workflow-card {padding:24px;}
+.workflow-card-head,.workflow-card-footer {display:flex;align-items:center;justify-content:space-between;gap:16px;}
+.workflow-card-head h3,.workflow-run-row h3 {margin:10px 0;font-size:17px;}
+.workflow-card-head p,.workflow-run-row p {margin:8px 0;line-height:1.7;color:var(--muted);}
+.workflow-summary {display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:0;margin:22px 0;list-style:none;}
+.workflow-summary li {display:flex;align-items:center;gap:7px;background:var(--surface-alt);border:1px solid var(--line);border-radius:6px;padding:7px 9px;font-size:11px;}
+.workflow-summary li>span {font-weight:700;color:var(--primary);}
+.workflow-summary small {color:var(--muted);}
+.workflow-card-footer {padding-top:16px;border-top:1px solid var(--line);}
+.workflow-run-row {padding:22px;display:flex;align-items:center;justify-content:space-between;gap:20px;}
+.workflow-run-row small {color:var(--muted);}
+.workflow-status {font-size:11px;font-weight:600;display:inline-block;color:var(--muted);background:var(--surface-hover);padding:4px 8px;border-radius:5px;text-transform:capitalize;}
+.workflow-status.succeeded {color:var(--success);background:var(--success-bg);}
+.workflow-status.failed,.workflow-status.uncertain {color:var(--danger);background:var(--danger-bg);}
+.workflow-status.running,.workflow-status.waiting {color:var(--warning);background:var(--warning-bg);}
+.workflow-active-dot {width:6px;height:6px;background:var(--primary);border-radius:50%;}
+.workflow-builder,.workflow-step-log {list-style:none;padding:0;margin:14px 0 22px;display:grid;gap:12px;}
+.workflow-builder>li {padding:16px;border:1px solid var(--line);border-radius:8px;background:var(--surface-alt);}
+.workflow-builder-heading {display:flex;gap:12px;align-items:center;}
+.workflow-builder-heading>select {flex:1;min-width:0;}
+.workflow-step-number {width:28px;height:28px;display:flex;align-items:center;justify-content:center;flex-shrink:0;border-radius:7px;background:var(--panel);color:var(--primary);border:1px solid var(--line);font-weight:700;font-size:12px;}
+.workflow-builder .field {margin:16px 0 0;}
+.workflow-enabled {display:flex;align-items:center;gap:8px;font-size:13px;margin:22px 0 10px;}
+.workflow-enabled input {width:16px;height:16px;}
+.workflow-step-log>li {padding:14px 0;display:flex;align-items:flex-start;gap:14px;border-bottom:1px solid var(--line);}
+.workflow-step-log>li>div {flex:1;min-width:0;}
+.workflow-step-log strong {display:inline-block;margin:4px 10px 6px 0;}
+.workflow-step-log p {line-height:1.75;color:var(--muted);font-size:12px;}
+.workflow-step-log code,.workflow-run-summary code {font-size:11px;overflow-wrap:anywhere;display:block;margin-top:10px;}
+.workflow-message {white-space:pre-wrap;padding:10px 12px;background:var(--surface-alt);border-radius:6px;}
+.workflow-run-summary {display:flex;gap:16px;align-items:center;justify-content:space-between;flex-wrap:wrap;}
+.workflow-run-summary code {margin:0;}
+@media(max-width:900px){.workflow-presets{grid-template-columns:1fr;}.workflow-card-footer{align-items:flex-start;flex-direction:column;}}
+@media(max-width:600px){.workflow-card{padding:18px;}.workflow-builder-heading{flex-wrap:wrap;}.workflow-builder-heading .button-row{margin-left:auto;}.workflow-builder>li{padding:12px;}.workflow-run-row{align-items:flex-start;flex-direction:column;}}

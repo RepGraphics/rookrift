@@ -1,5 +1,8 @@
 import { createMetricsCache } from './cache.js';
 import { createCommunity } from './community.js';
+import {createWorkflows} from './workflows.js';
+import {createConfigLibrary} from './config-library.js';
+import {sendAlert} from './bot.js';
 import { createTeam, staffAudit } from './team.js';
 import { authorizeRequest } from './access.js';
 import { buildDashboard } from './dashboard.js';
@@ -39,6 +42,8 @@ export function createApp({
   service,
   billing,
   operations: providedOperations,
+  workflows:providedWorkflows,
+  configurations:providedConfigurations,
   cache = createMetricsCache({
     url: null
   }),
@@ -47,6 +52,8 @@ export function createApp({
 }) {
   const operations = providedOperations || createOperations(db, vault, service, undefined, cache);
   service.setBackupHandler?.((workspace,server)=>operations.hostingAction(workspace,server.id,{action:'backup',confirmation:server.name}));
+  const workflows=providedWorkflows||createWorkflows(db,service,operations,{send:(ws,message)=>sendAlert(getBot(),ws,message)});
+  const configurations=providedConfigurations||createConfigLibrary(db,vault,service,operations);
   const community = createCommunity(db);
   const banDirectory = createBanDirectory(db),
     team = createTeam(db),
@@ -54,6 +61,8 @@ export function createApp({
   const app = express(),
     origin = new URL(env.APP_URL || 'http://localhost:3000').origin;
   const secure = env.NODE_ENV === 'production';
+  app.locals.workflows=workflows;
+  app.locals.configurations=configurations;
   app.disable('x-powered-by');
   app.set('trust proxy', Number(env.TRUST_PROXY_HOPS || 0));
   app.use(helmet({
@@ -104,6 +113,9 @@ export function createApp({
     standardHeaders: 'draft-8',
     legacyHeaders: false
   }));
+  app.use('/api/hooks',rateLimit({windowMs:3600000,limit:60,standardHeaders:'draft-8',legacyHeaders:false}),(_,res,next)=>{res.set('Cache-Control','no-store');next();});
+  app.post('/api/hooks/workflows/:id',async(req,res)=>res.status(202).json(await workflows.webhook(req.params.id,req.get('Authorization'),req.body)));
+  app.use('/api/hooks',(_,res)=>res.status(404).json({error:'Webhook endpoint not found.'}));
   app.use('/auth', rateLimit({
     windowMs: 900000,
     limit: 30,
@@ -215,7 +227,7 @@ export function createApp({
       return;
     }
     await authorizeRequest(db, req);
-    if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && /^\/(servers|schedules|templates|maintenance-windows|incidents|moderation|community)(\/|$)/.test(req.path)) {
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && /^\/(servers|schedules|templates|maintenance-windows|incidents|moderation|community|workflows|workflow-runs|config-templates|config-applications)(\/|$)/.test(req.path)) {
       const action = req.method + ' ' + req.path,
         workspace = req.workspace.id,
         user = req.user,
@@ -237,6 +249,25 @@ export function createApp({
     env
   })));
   app.get('/api/workspaces', async (req, res) => res.set('Cache-Control', 'no-store').json(await team.listWorkspaces(req.auth.user_id)));
+  app.get('/api/workflows',async(req,res)=>res.json(await workflows.view(req.workspace.id,req.access.server_ids)));
+  app.get('/api/workflow-runs/:id',async(req,res)=>res.json(await workflows.detail(req.workspace.id,req.params.id)));
+  app.get('/api/config-templates',async(req,res)=>res.json(await configurations.view(req.workspace.id,req.access.server_ids)));
+  app.post('/api/config-templates',async(req,res)=>res.status(201).json(await configurations.save(req.workspace.id,null,req.body,req.user)));
+  app.patch('/api/config-templates/:id',async(req,res)=>res.json(await configurations.save(req.workspace.id,req.params.id,req.body,req.user)));
+  app.get('/api/config-templates/:id/versions',async(req,res)=>res.json(await configurations.versions(req.workspace.id,req.params.id)));
+  app.delete('/api/config-templates/:id',async(req,res)=>res.json(await configurations.remove(req.workspace.id,req.params.id)));
+  app.post('/api/config-templates/:id/preview',async(req,res)=>res.json(await configurations.preview(req.workspace.id,req.params.id,req.body)));
+  app.post('/api/config-templates/:id/apply',async(req,res)=>res.json(await configurations.apply(req.workspace.id,req.params.id,req.body,req.user)));
+  app.post('/api/config-applications/:id/rollback',async(req,res)=>res.json(await configurations.rollback(req.workspace.id,req.params.id,req.body,req.user)));
+  app.post('/api/config-applications/:id/verify',async(req,res)=>res.json(await configurations.verify(req.workspace.id,req.params.id)));
+  app.delete('/api/config-applications/:id',async(req,res)=>res.json(await configurations.removeApplication(req.workspace.id,req.params.id)));
+  app.post('/api/workflows',async(req,res)=>res.status(201).json(await workflows.save(req.workspace.id,null,req.body,req.user)));
+  app.patch('/api/workflows/:id',async(req,res)=>res.json(await workflows.save(req.workspace.id,req.params.id,req.body,req.user)));
+  app.post('/api/workflows/:id/toggle',async(req,res)=>res.json(await workflows.toggle(req.workspace.id,req.params.id,z.object({enabled:z.boolean()}).strict().parse(req.body).enabled)));
+  app.post('/api/workflows/:id/run',async(req,res)=>res.status(202).json(await workflows.start(req.workspace.id,req.params.id,z.object({confirmation:z.string().max(60).optional()}).strict().parse(req.body||{}),req.user)));
+  app.post('/api/workflows/:id/webhook-key',async(req,res)=>res.json(await workflows.rotateKey(req.workspace.id,req.params.id)));
+  app.delete('/api/workflows/:id',async(req,res)=>res.json(await workflows.remove(req.workspace.id,req.params.id)));
+  app.post('/api/workflow-runs/:id/cancel',async(req,res)=>res.json(await workflows.cancel(req.workspace.id,req.params.id,req.user)));
   app.get('/api/community',async(req,res)=>res.json(await community.manage(req.workspace.id)));
   app.put('/api/community/site',async(req,res)=>res.json(await community.saveSite(req.workspace.id,req.body)));
   app.post('/api/community/posts',async(req,res)=>res.status(201).json(await community.savePost(req.workspace.id,null,req.body)));

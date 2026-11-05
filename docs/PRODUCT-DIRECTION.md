@@ -1,8 +1,8 @@
 # Rookrift product direction
 
-Updated 4 November 2026. Product reference: GameServerApp. Aim: an affordable ARK-first management service that covers a community owner's daily work in one dashboard and Discord bot. Build an independent Rookrift experience around those workflows.
+Updated 5 November 2026. Product reference: GameServerApp. Aim: an affordable ARK-first management service that covers a community owner's daily work in one dashboard and Discord bot. Build an independent Rookrift experience around those workflows.
 
-Version 0.7 adds a public community hub, rules/news, events with capacity-limited RSVPs, Discord-authenticated join/staff applications and review, calendar tasks, scheduled Pterodactyl backup requests, and community bot commands. See [the feature guide](COMMUNITY.md). These join persistent player profiles, private notes, scoped teams and staff audit from 0.5, and PostgreSQL/Redis from 0.6. Current defaults remain Scout: 2 free servers and 2 tasks; Tribe: GBP 3.99/month for 5 servers and 3 staff seats; Cluster: GBP 9.99/month for 20 servers and 10 staff seats. Stripe products and existing subscription prices are configured separately.
+Version 0.8 adds a [multi-step workflow builder](WORKFLOWS.md), restart countdowns, scheduled/incident/webhook triggers, cooldowns, cancellation and durable step history, verified archive/recovery checks, staff notifications, Discord workflow controls, and a [versioned INI configuration library](CONFIGURATION.md) with preview, Pterodactyl deployment and encrypted rollback. It builds on the [community hub](COMMUNITY.md), profiles, scoped teams and PostgreSQL/Redis already shipped. Prices remain Scout free, Tribe GBP 3.99/month and Cluster GBP 9.99/month. Workflows have separate 2/10/50 allowances alongside the existing simple tasks. Stripe products and existing subscription prices are configured separately.
 
 ## What to learn from GameServerApp
 
@@ -17,9 +17,9 @@ GSA distinguishes RconConnect from DediConnect. Its documentation says RconConne
 | Monitor a cluster | RCON snapshots, player counts, health history, incidents, Discord alerts, opt-in public server status | Persistent player sessions and reliable join/leave events |
 | Moderate players | Kick/ban/unban history, profiles and private server-scoped staff notes, unified cluster list, opt-in exact-ID community ban lookup | Appeal tracking and imported ban-list reconciliation |
 | Share administration | Discord-bound invitations, dashboard roles and server scopes, staff audit; permission-gated Discord commands | Further game integrations for shared administration |
-| Run routine work | Interval and local-time weekday schedules for saves/broadcasts/backup requests, announcement templates, maintenance windows, run history | Event triggers, sequential actions, restart countdowns, cooldowns and failure recovery |
-| Control the host | Verified Pterodactyl process controls, resources, manual/scheduled backup requests and backup status | Completion alerts, verified restore workflow, additional host adapters |
-| Maintain game content | Separate ASE/ASA adapters | Versioned INI templates, previewed config changes, mod/update detection, optional host agent |
+| Run routine work | Simple schedules plus persistent multi-step workflows, local calendar/incident/webhook triggers, restart countdowns, cooldowns, cancellation and step history | Verified in-game events, achievements, richer conditions and additional game actions |
+| Control the host | Pterodactyl process controls/resources, manual/scheduled backups, exact archive-completion checks and workflow notifications | Verified game-world restore workflow, retention policies, additional host adapters |
+| Maintain game content | Separate ASE/ASA adapters, versioned INI patches, change previews, stopped-server file deployment and encrypted guarded rollback | Full array/config schema support, mod/update detection and installation, optional host agent |
 | Serve the community | Public cluster hub, rules/news, events and RSVPs, join/staff applications and review, Discord hub/pending-count commands | Verified whitelist execution, forums, two-way chat where supported |
 | Fund the community | Stripe billing for the owner's Rookrift subscription | Separate player-facing supporter store, subscriptions, fulfillment jobs, role/perk expiry, refunds and delivery history |
 | Add another game | DayZ placeholder, disabled | Tested BattlEye transport and game capability matrix after the ARK workflows are proven |
@@ -52,11 +52,11 @@ Keep observed sessions honest: RCON polling can record approximate first/last si
 
 ### 2. Reduce repetitive work
 
-Version 0.7 implements timezone-aware daily/weekday schedules and scheduled provider backup requests with run history. Next add a bounded sequence of actions: announce, wait, save, request provider restart, verify recovery, notify staff. Represent each step's outcome, stop on failures, limit retries, prevent overlapping runs, and suppress crash-recovery loops during maintenance. Event-triggered workflows need verified event sources, cooldowns, and deduplication. A restart should use an available host connector rather than assuming RCON can start a stopped process.
+Version 0.8 implements bounded sequences, restart countdowns, archive/recovery verification, incident/webhook triggers, cooldowns, deduplication and explicit cancellation. It persists waits and stops ambiguous external actions instead of replaying them. Next add game/plugin event sources and achievement conditions once their identity and delivery guarantees are tested. Process restarts use the verified host connector.
 
 ### 3. Improve backups and configuration
 
-Version 0.7 schedules backup requests through the verified provider connector. Next add completion/failure notifications and explicit retention/cost settings. Restore needs an identifiable completed archive, exact target confirmation, and a recovery check. Then introduce configuration templates with a change preview, rollback, and a supported file/agent capability. Validate ASE and ASA separately. Extend host adapters based on pilot demand.
+Version 0.8 adds exact backup-completion verification with notifications in archive workflows, and versioned configuration patches with live previews, stopped-server Pterodactyl file writes and encrypted guarded rollback. Remaining work includes world-backup restore, explicit provider retention/cost policies, complex array settings and deeper mod/agent support. Validate live panel paths, permissions and game semantics on pilot servers.
 
 ### 4. Add the player-facing community layer
 

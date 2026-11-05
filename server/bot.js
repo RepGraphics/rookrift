@@ -21,9 +21,12 @@ export function commandDefinitions() {
       return c;
     });
   }
+  builder.addSubcommand(c=>c.setName('workflows').setDescription('List workflow definitions and active runs'));
+  builder.addSubcommand(c=>c.setName('workflow-run').setDescription('Start a saved workflow').addStringOption(o=>o.setName('workflow').setDescription('Saved workflow').setRequired(true).setAutocomplete(true)).addStringOption(o=>o.setName('confirmation').setDescription('Exact server name, required for restart workflows').setMaxLength(60)));
+  builder.addSubcommand(c=>c.setName('workflow-cancel').setDescription('Cancel the remaining steps of a workflow run').addStringOption(o=>o.setName('run_id').setDescription('Run ID from the dashboard or workflow list').setRequired(true)));
   return [builder.toJSON()];
 }
-export async function startBot(db, service, env = process.env) {
+export async function startBot(db, service, env = process.env,workflows) {
   if (!env.DISCORD_BOT_TOKEN) return null;
   const client = new Client({
     intents: [GatewayIntentBits.Guilds]
@@ -37,6 +40,7 @@ export async function startBot(db, service, env = process.env) {
       const ws = permitted && (await db.prepare('SELECT * FROM workspaces WHERE guild_id=?').get(interaction.guildId));
       if (interaction.isAutocomplete()) {
         const query = interaction.options.getFocused().toLowerCase();
+        if(interaction.options.getFocused(true).name==='workflow'){const choices=ws&&workflows?(await workflows.view(ws.id)).definitions.filter(flow=>!flow.paused&&flow.enabled&&flow.name.toLowerCase().includes(query)).slice(0,25).map(flow=>({name:flow.name,value:flow.id})):[];await interaction.respond(choices);return;}
         const choices = ws ? (await listServers(db, ws.id)).slice(0, effectivePlan(ws).servers).filter(s => s.name.toLowerCase().includes(query)).slice(0, 25).map(s => ({
           name: s.name,
           value: s.id
@@ -64,7 +68,7 @@ export async function startBot(db, service, env = process.env) {
       const action = interaction.options.getSubcommand();
       let title = 'Rookrift',
         description;
-      if(action==='community'){const {site}=await createCommunity(db).manage(ws.id);description=site?.enabled?env.APP_URL+'/c/'+site.slug:'Publish a community page from Community hub in your dashboard first.';}else if(action==='applications'){const rows=await createCommunity(db).applications(ws.id);description=`${rows.length} pending application${rows.length===1?'':'s'}. Review privately in the dashboard: ${env.APP_URL}`;}else if (action === 'dashboard') description = env.APP_URL;else if (action === 'servers') {
+      if(action==='workflows'){if(!workflows)throw Object.assign(new Error('Workflow worker unavailable.'),{status:503});const view=await workflows.view(ws.id);description=view.definitions.map(flow=>`**${flow.name}** ? ${flow.enabled&&!flow.paused?'Enabled':'Paused'}`).join('\n')||'Create a workflow in your dashboard.';const active=view.runs.filter(run=>['queued','running','waiting'].includes(run.status));if(active.length)description+='\n\nActive run IDs:\n'+active.map(run=>`${run.name}: ${run.id}`).join('\n');}else if(action==='workflow-run'){const result=await workflows.start(ws.id,interaction.options.getString('workflow',true),{confirmation:interaction.options.getString('confirmation')},{name:'Discord: '+interaction.user.username});description='Workflow queued. Run ID: '+result.run_id;}else if(action==='workflow-cancel'){await workflows.cancel(ws.id,interaction.options.getString('run_id',true),{name:'Discord: '+interaction.user.username});description='Cancellation requested. The current external action may finish; later steps will stop.';}else if(action==='community'){const {site}=await createCommunity(db).manage(ws.id);description=site?.enabled?env.APP_URL+'/c/'+site.slug:'Publish a community page from Community hub in your dashboard first.';}else if(action==='applications'){const rows=await createCommunity(db).applications(ws.id);description=`${rows.length} pending application${rows.length===1?'':'s'}. Review privately in the dashboard: ${env.APP_URL}`;}else if (action === 'dashboard') description = env.APP_URL;else if (action === 'servers') {
         title = `${ws.name} · ${effectivePlan(ws).name}`;
         description = (await listServers(db, ws.id)).map((s, i) => `${i >= effectivePlan(ws).servers ? '⏸' : s.status === 'online' ? '🟢' : '⚪'} **${s.name}** · ${s.game.toUpperCase()} · ${s.status === 'online' ? s.players : '—'} players${s.maintenance ? ' · Maintenance' : ''}`).join('\n') || 'No servers yet. Add your first server in the dashboard.';
       } else if (action === 'maintenance') {
@@ -104,12 +108,12 @@ export async function startBot(db, service, env = process.env) {
   return client;
 }
 export async function sendAlert(client, ws, text) {
-  if (!client?.isReady() || !ws.guild_id || !ws.alert_channel_id) return;
+  if (!client?.isReady() || !ws.guild_id || !ws.alert_channel_id) return false;
   const channel = await client.channels.fetch(ws.alert_channel_id);
-  if (channel?.guildId === ws.guild_id && channel.isTextBased() && 'send' in channel) await channel.send({
+  if (channel?.guildId === ws.guild_id && channel.isTextBased() && 'send' in channel){await channel.send({
     content: `**Rookrift** · ${text}`,
     allowedMentions: {
       parse: []
     }
-  });
+  });return true;}return false;
 }

@@ -182,7 +182,7 @@ test('bot commands are guild-only, permission-gated, and have complete definitio
   assert.equal(command.name, 'rookrift');
   assert.equal(command.default_member_permissions, '32');
   assert.deepEqual(command.contexts, [0]);
-  assert.equal(command.options.length, 9);
+  assert.equal(command.options.length, 12);
   assert.ok(command.options.some(option=>option.name==='community'));
   assert.ok(command.options.some(option=>option.name==='applications'));
   const maintenance = command.options.find(option => option.name === 'maintenance');

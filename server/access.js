@@ -35,6 +35,23 @@ export async function authorizeRequest(db, req) {
     if (!row) missing();
     return row;
   };
+  if(path==='/workflows'){
+    if(method==='GET')return;
+    if(admin&&method==='POST'){await server(req.body?.server_id);return;}
+    deny();
+  }
+  let workflowMatch=path.match(/^\/workflows\/([^/]+)(?:\/(run|toggle|webhook-key))?$/);
+  if(path==='/config-templates'&&method==='GET')return;
+  let configMatch=path.match(/^\/config-templates\/([^/]+)(?:\/(versions|preview|apply))?$/);
+  if(configMatch){await record('config_templates',configMatch[1]);if(method==='GET'&&configMatch[2]==='versions')return;if(['preview','apply'].includes(configMatch[2])){if(!admin)deny();await server(req.body?.server_id);return;}if(admin&&access.server_ids===null)return;deny();}
+  if(path==='/config-templates'&&method==='POST'){if(admin&&access.server_ids===null)return;deny();}
+  configMatch=path.match(/^\/config-applications\/([^/]+)(?:\/(rollback|verify))?$/);
+  if(configMatch){if(!admin)deny();await server((await record('config_applications',configMatch[1])).server_id);return;}
+  if(workflowMatch){if(!admin)deny();await server((await record('workflows',workflowMatch[1])).server_id);if(req.body?.server_id)await server(req.body.server_id);return;}
+  workflowMatch=path.match(/^\/workflow-runs\/([^/]+)\/cancel$/);
+  if(workflowMatch){if(!admin)deny();await server((await record('workflow_runs',workflowMatch[1])).server_id);return;}
+  workflowMatch=path.match(/^\/workflow-runs\/([^/]+)$/);
+  if(workflowMatch&&method==='GET'){await server((await record('workflow_runs',workflowMatch[1])).server_id);return;}
   if (method === 'POST' && ['/logout', '/workspaces/switch', '/team/invitations/preview', '/team/invitations/accept', '/ban-directory/search'].includes(path)) return;
   if (method === 'GET' && ['/bootstrap', '/workspaces', '/ban-directory/bans', '/player-profiles'].includes(path)) return;
   if (/^\/player-profiles\/[^/]+(?:\/notes(?:\/[^/]+)?)?$/.test(path)) {

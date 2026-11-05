@@ -1,7 +1,7 @@
 import https from 'node:https';
 import { isIP } from 'node:net';
 import { resolveTarget } from './games.js';
-export async function securePanelRequest(origin, path, key, method = 'GET', body) {
+export async function securePanelRequest(origin, path, key, method = 'GET', body,options={}) {
   const url = new URL(origin);
   if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash) throw Object.assign(new Error('Use an HTTPS panel origin without a path, query, or credentials.'),{status:400});
   const hostname = url.hostname.replace(/^\[|\]$/g,'');
@@ -11,23 +11,25 @@ export async function securePanelRequest(origin, path, key, method = 'GET', body
     const finish=(error,value)=>{if(complete)return;complete=true;clearTimeout(timer);if(error)reject(error);else resolve(value);};
     const request=https.request({ hostname, port:url.port || 443, path, method, family:isIP(address),
       lookup:(_,options,callback)=>options.all ? callback(null,[{address,family:isIP(address)}]) : callback(null,address,isIP(address)),
-      headers:{ Authorization:`Bearer ${key}`,Accept:'application/vnd.pterodactyl.v1+json','Content-Type':'application/json' }
+      headers:{ Authorization:`Bearer ${key}`,Accept:options.text?'text/plain':'application/vnd.pterodactyl.v1+json','Content-Type':options.raw?'text/plain; charset=utf-8':'application/json' }
     },response=>{
       if(response.statusCode<200 || response.statusCode>=300){response.resume();finish(Object.assign(new Error(response.statusCode===401||response.statusCode===403?'Hosting credentials or permissions were rejected.':response.statusCode===429?'The hosting panel is rate limiting requests. Try again shortly.':'The hosting panel request failed. Check the server ID and panel availability.'),{status:502}));return;}
-      let data='',bytes=0;response.on('data',chunk=>{bytes+=chunk.length;if(bytes>1048576){response.destroy();finish(Object.assign(new Error('Hosting response exceeded the size limit.'),{status:502}));return;}data+=chunk;});
-      response.on('end',()=>{try{finish(null,data?JSON.parse(data):{});}catch{finish(Object.assign(new Error('The hosting panel returned invalid JSON.'),{status:502}));}});
+      response.setEncoding('utf8');let data='',bytes=0;response.on('data',chunk=>{bytes+=Buffer.byteLength(chunk);if(bytes>1048576){response.destroy();finish(Object.assign(new Error('Hosting response exceeded the size limit.'),{status:502}));return;}data+=chunk;});
+      response.on('end',()=>{try{finish(null,options.text?data:data?JSON.parse(data):{});}catch{finish(Object.assign(new Error('The hosting panel returned invalid JSON.'),{status:502}));}});
       response.on('error',()=>finish(Object.assign(new Error('Hosting response interrupted.'),{status:502})));
     });
     const timer=setTimeout(()=>request.destroy(new Error('Timeout')),10000);
     request.on('error',()=>finish(Object.assign(new Error('Unable to reach the hosting panel over verified HTTPS.'),{status:502})));
-    if(body!==undefined)request.write(JSON.stringify(body));request.end();
+    if(body!==undefined)request.write(options.raw?body:JSON.stringify(body));request.end();
   });
 }
 const attributes=value=>value?.attributes || value || {};
 export function createHostingAdapter(request = securePanelRequest) {
   const base=connection=>`/api/client/servers/${encodeURIComponent(connection.remote_id)}`;
-  const call=(connection,path,method,body)=>request(connection.origin,base(connection)+path,connection.key,method,body);
+  const call=(connection,path,method,body,options)=>request(connection.origin,base(connection)+path,connection.key,method,body,options);
   return {
+    readFile:(connection,path)=>call(connection,'/files/contents?file='+encodeURIComponent(path),'GET',undefined,{text:true}),
+    writeFile:(connection,path,body)=>call(connection,'/files/write?file='+encodeURIComponent(path),'POST',body,{raw:true}),
     async resources(connection) {
       const data=attributes(await call(connection,'/resources'));
       if(typeof data.current_state!=='string'||!data.resources||typeof data.resources!=='object'||Array.isArray(data.resources))throw Object.assign(new Error('The panel did not return a valid Pterodactyl resource response.'),{status:502});
@@ -44,6 +46,11 @@ export function createHostingAdapter(request = securePanelRequest) {
       if(action==='backup'){const data=attributes(await call(connection,'/backups','POST',{name}));return {accepted:true,backup_id:String(data.uuid || ''),detail:'Backup creation accepted by the hosting panel.'};}
       if(!['start','stop','restart'].includes(action))throw Object.assign(new Error('Unsupported hosting action.'),{status:400});
       await call(connection,'/power','POST',{signal:action});return {accepted:true,detail:`${action[0].toUpperCase()+action.slice(1)} request accepted by the hosting panel.`};
+    }
+    ,async backup(connection,id){
+      if(!/^[a-f0-9-]{36}$/i.test(id))throw Object.assign(new Error('The provider did not return a valid backup reference.'),{status:400});
+      const value=attributes(await call(connection,'/backups/'+encodeURIComponent(id)));
+      return{id:String(value.uuid||id),status:value.completed_at?value.is_successful?'completed':'failed':'in progress',completed_at:value.completed_at||null};
     }
   };
 }

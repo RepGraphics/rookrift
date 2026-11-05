@@ -1,0 +1,9 @@
+export const STEP_LABELS={broadcast:'Announce in game',wait:'Wait',save:'Save world',backup:'Request provider backup',wait_backup:'Verify backup completed',restart:'Restart through provider',verify_online:'Verify RCON recovery',notify:'Notify staff'};
+export const TRIGGER_LABELS={manual:'Manual',interval:'At an interval',weekly:'Local time & weekdays',outage:'Confirmed RCON outage',recovery:'RCON recovered',webhook:'Authenticated webhook'};
+export const ACTIVE_RUNS=['queued','running','waiting'];
+export const defaultStep=type=>type==='broadcast'?{type,message:'{server} will restart in 5 minutes. Please find a safe place.'}:type==='notify'?{type,message:'Maintenance completed on {server}.'}:type==='wait'?{type,seconds:60}:type==='verify_online'?{type,timeout_minutes:10}:type==='wait_backup'?{type,timeout_minutes:30}:{type};
+export const WORKFLOW_PRESETS=[
+ {name:'Restart countdown',description:'Warn players, save, restart through your host and verify RCON recovery.',steps:[{type:'broadcast',message:'{server} will restart in 5 minutes. Please find a safe place.'},{type:'wait',seconds:240},{type:'broadcast',message:'{server} will restart in 1 minute.'},{type:'wait',seconds:60},{type:'save'},{type:'restart'},{type:'verify_online',timeout_minutes:15},{type:'notify',message:'{server} is back online after its scheduled restart.'}]},
+ {name:'Verified archive',description:'Save the world, request an archive and wait for the provider to confirm completion.',steps:[{type:'save'},{type:'backup'},{type:'wait_backup',timeout_minutes:60},{type:'notify',message:'The provider completed a backup for {server}.'}]},
+ {name:'Recovery check',description:'Verify that RCON responds before notifying your team.',steps:[{type:'verify_online',timeout_minutes:10},{type:'notify',message:'RCON is responding on {server}.'}]}
+];

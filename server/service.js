@@ -7,6 +7,7 @@ import { commandFor } from './games.js';
 import { maintenanceState, renderAnnouncement, observeHealth, notify } from './operations-state.js';
 import { observePlayers } from './player-profiles.js';
 import { nextRun,validTimeZone } from '../shared/scheduling.js';
+import { assertWorkflowIdle } from './workflows.js';
 const serverFields = z.object({
   name: z.string().trim().min(2).max(60),
   game: z.enum(['asa', 'ase']),
@@ -98,6 +99,7 @@ export function createService(db, vault, transport = runRcon) {
       try {
         return await db.withWorkspaceLock(workspaceId, async () => {
           const original = await getServer(workspaceId, id, false);
+          await assertWorkflowIdle(db,id);
           if (data.game && data.game !== original.game && ((await db.prepare('SELECT 1 FROM player_observations WHERE server_id=? LIMIT 1').get(id)) || (await db.prepare('SELECT 1 FROM moderation WHERE server_id=? LIMIT 1').get(id)))) throw Object.assign(new Error('Add a new connection to change games after player or moderation history exists.'), {
             status: 409
           });
@@ -183,13 +185,15 @@ export function createService(db, vault, transport = runRcon) {
       runningTasks.add(id);
       try {
         const server = await getServer(workspaceId, task.server_id);
-        if ((await maintenanceState(db, server)).in_maintenance) {
-          await db.prepare("UPDATE schedules SET last_run=?,last_status='skipped',last_detail=? WHERE id=?").run(Date.now(), 'Server is in maintenance mode.', id);
-          await audit(db, workspaceId, 'Automation skipped', `${task.name} · ${server.name} is in maintenance mode.`, 'info', server.id);
-          await record('skipped', 'Server is in maintenance mode.');
+        let reservation='';try{await assertWorkflowIdle(db,server.id);}catch(error){if(error.status!==409)throw error;reservation=error.message;}
+        if (reservation||(await maintenanceState(db, server)).in_maintenance) {
+          const detail=reservation||'Server is in maintenance mode.';
+          await db.prepare("UPDATE schedules SET last_run=?,last_status='skipped',last_detail=? WHERE id=?").run(Date.now(), detail, id);
+          await audit(db, workspaceId, 'Automation skipped', `${task.name} · ${server.name} · ${detail}`, 'info', server.id);
+          await record('skipped', detail);
           return {
             status: 'skipped',
-            detail: 'Server is in maintenance mode.'
+            detail
           };
         }
         if(task.action==='backup'&&!requestBackup)throw Object.assign(new Error('Hosting backup execution is unavailable.'),{status:503});
@@ -244,7 +248,7 @@ export function createService(db, vault, transport = runRcon) {
       const server = await getServer(workspaceId, serverId);
       commandFor(action, message);
       if (busy.has(serverId)) throw Object.assign(new Error('Another command is running on this server. Try again shortly.'), {
-        status: 409
+        status: 409,code:'SERVER_BUSY'
       });
       busy.add(serverId);
       try {
@@ -328,6 +332,7 @@ export function createService(db, vault, transport = runRcon) {
       try {
         return await db.withWorkspaceLock(workspaceId, async () => {
           const server = await getServer(workspaceId, id, false);
+          await assertWorkflowIdle(db,id);
           await db.prepare('DELETE FROM servers WHERE id=? AND workspace_id=?').run(id, workspaceId);
           const site=await db.prepare('SELECT server_ids FROM community_sites WHERE workspace_id=?').get(workspaceId);
           if(site)await db.prepare('UPDATE community_sites SET server_ids=?,updated_at=? WHERE workspace_id=?').run(JSON.stringify(JSON.parse(site.server_ids).filter(server=>server!==id)),Date.now(),workspaceId);

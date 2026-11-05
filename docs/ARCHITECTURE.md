@@ -10,6 +10,11 @@ flowchart LR
   API --> Cache[Redis metric cache]
   Service --> RCON[ASA / ASE Source RCON]
   Scheduler[Persisted interval / local-calendar scheduler] --> Service
+  WorkflowWorker[Durable workflow worker] --> Service
+  WorkflowWorker --> DB
+  API --> Config[Versioned configuration library]
+  Config --> DB
+  Config --> Panel[Pterodactyl client file API]
   Community[Public community hub] --> API
   API --> OAuth[Discord OAuth]
   API --> Checkout[Stripe Checkout / portal]

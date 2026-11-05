@@ -1,5 +1,5 @@
 import {readFile} from 'node:fs/promises';
-const migrations=[{version:1,file:new URL('./migrations/001-postgres.sql',import.meta.url)},{version:2,file:new URL('./migrations/002-community.sql',import.meta.url)}];
+const migrations=[{version:1,file:new URL('./migrations/001-postgres.sql',import.meta.url)},{version:2,file:new URL('./migrations/002-community.sql',import.meta.url)},{version:3,file:new URL('./migrations/003-workflows.sql',import.meta.url)}];
 export async function migrateDatabase(db){return db.transaction(async()=>{
   await db.query('SELECT pg_advisory_xact_lock(93001,hashtext(current_schema()))');
   await db.query('CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY,applied_at BIGINT NOT NULL)');

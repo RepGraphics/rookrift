@@ -6,7 +6,7 @@ import {createApp} from './app.js';
 import {createMetricsCache} from './cache.js';
 import {startBot,sendAlert} from './bot.js';
 
-let db,cache,server,bot,interval,stopping=false,active=false,cycle=0;
+let db,cache,server,bot,interval,workflows,workflowTimer,stopping=false,active=false,cycle=0;
 async function tick(){
   if(active||stopping)return;active=true;
   try{
@@ -18,9 +18,9 @@ async function tick(){
 }
 let service,billing;
 async function stop(code=0){
-  if(stopping)return;stopping=true;clearInterval(interval);bot?.destroy();
+  if(stopping)return;stopping=true;clearInterval(interval);clearInterval(workflowTimer);bot?.destroy();
   const closing=server?new Promise(resolve=>server.close(resolve)):Promise.resolve();
-  while(active)await new Promise(resolve=>setTimeout(resolve,100));
+  await workflows?.stop();while(active)await new Promise(resolve=>setTimeout(resolve,100));
   await closing;await cache?.close();await db?.close();process.exit(code);
 }
 async function start(){
@@ -31,9 +31,12 @@ async function start(){
   await db.acquireRuntimeLock(()=>{console.error('PostgreSQL runtime lease lost; stopping to prevent duplicate workers.');process.exit(1);});
   cache=createMetricsCache();cache.start();service=createService(db,vault);billing=createBilling(db);
   const app=createApp({db,vault,service,billing,cache,getBot:()=>bot});
+  workflows=app.locals.workflows;await app.locals.configurations.recover();await workflows.recover();
   server=app.listen(Number(process.env.PORT||3000),()=>console.log('Rookrift is ready with PostgreSQL storage.'));
   interval=setInterval(tick,60000);void tick();
-  startBot(db,service).then(client=>{if(stopping)client?.destroy();else bot=client;}).catch(()=>console.error('Discord bot could not connect. Check its token and restart to retry.'));
+  workflowTimer=setInterval(()=>workflows.tick().catch(()=>console.error('Workflow cycle failed; it will retry.')),5000);
+  void workflows.tick().catch(()=>console.error('Workflow cycle failed; it will retry.'));
+  startBot(db,service,process.env,workflows).then(client=>{if(stopping)client?.destroy();else bot=client;}).catch(()=>console.error('Discord bot could not connect. Check its token and restart to retry.'));
 }
 process.on('SIGINT',()=>void stop());process.on('SIGTERM',()=>void stop());
 start().catch(async()=>{console.error('Rookrift startup failed. Check APP_URL, ENCRYPTION_KEY, PostgreSQL connectivity, and that only one runtime is active.');await cache?.close();await db?.close().catch(()=>{});process.exit(1);});

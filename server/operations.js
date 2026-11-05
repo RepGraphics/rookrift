@@ -1,4 +1,5 @@
 import { createMetricsCache } from './cache.js';
+import {assertWorkflowIdle} from './workflows.js';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { assertCapacity, effectivePlan } from './plans.js';
@@ -66,6 +67,10 @@ export function createOperations(db, vault, service, hosting = createHostingAdap
     };
   };
   return {
+    async withConfigHost(workspace,id,callback,exceptConfig=null){
+      if(hostBusy.has(id))throw Object.assign(new Error('A hosting request is already running for this server.'),{status:409});hostBusy.add(id);
+      try{await assertWorkflowIdle(db,id,null,exceptConfig);const connection=await hostConnection(workspace,id);if(!hosting.readFile||!hosting.writeFile)throw Object.assign(new Error('This hosting adapter does not support configuration files.'),{status:400});return await callback({target:connection.origin+'\0'+connection.remote_id,resources:()=>hosting.resources(connection),read:path=>hosting.readFile(connection,path),write:(path,body)=>hosting.writeFile(connection,path,body)});}finally{hostBusy.delete(id);}
+    },
     async listTemplates(workspace) {
       return await db.prepare('SELECT id,name,body,created_at,updated_at FROM announcement_templates WHERE workspace_id=? ORDER BY created_at,id').all(workspace);
     },
@@ -272,13 +277,14 @@ export function createOperations(db, vault, service, hosting = createHostingAdap
         ...value,
         key
       });
+      await db.withWorkspaceLock(workspace,async()=>{await service.getServer(workspace,id);await assertWorkflowIdle(db,id);
       await db.prepare('INSERT INTO hosting_connections VALUES(?,?,?,?,?,?,?) ON CONFLICT(server_id) DO UPDATE SET origin=excluded.origin,remote_id=excluded.remote_id,api_key=excluded.api_key,verified_at=excluded.verified_at').run(id, workspace, value.provider, new URL(value.origin).origin, value.remote_id, vault.encrypt(key), Date.now());
-      await audit(db, workspace, 'Hosting panel connected', 'Pterodactyl connection verified.', 'success', id);
+      await audit(db, workspace, 'Hosting panel connected', 'Pterodactyl connection verified.', 'success', id);});
       return (await this.hostingLinks(workspace)).find(link => link.server_id === id);
     },
     async disconnectHosting(workspace, id) {
       await service.getServer(workspace, id, false);
-      await db.prepare('DELETE FROM hosting_connections WHERE server_id=? AND workspace_id=?').run(id, workspace);
+      await db.withWorkspaceLock(workspace,async()=>{await assertWorkflowIdle(db,id);await db.prepare('DELETE FROM hosting_connections WHERE server_id=? AND workspace_id=?').run(id, workspace);});
     },
     async hostingStatus(workspace, id) {
       const connection = await hostConnection(workspace, id);
@@ -290,17 +296,20 @@ export function createOperations(db, vault, service, hosting = createHostingAdap
         backups
       };
     },
-    async hostingAction(workspace, id, input) {
+    async hostingResources(workspace,id){return hosting.resources(await hostConnection(workspace,id));},
+    async hostingBackupStatus(workspace,id,backupId){const connection=await hostConnection(workspace,id);return hosting.backup?hosting.backup(connection,backupId):(await hosting.backups(connection)).find(item=>item.id===backupId)||{status:'unknown'};},
+    async hostingAction(workspace, id, input,internal={}) {
       const server = await service.getServer(workspace, id);
       const value = z.object({
         action: z.enum(['start', 'stop', 'restart', 'backup']),
         confirmation: z.string().max(60)
       }).strict().parse(input);
+      await assertWorkflowIdle(db,id,internal.workflowRun||null,null,value.action==='stop');
       if (value.confirmation !== server.name) throw Object.assign(new Error('Type the exact game server name to confirm this hosting action.'), {
         status: 400
       });
       if (hostBusy.has(id)) throw Object.assign(new Error('Another hosting request is running for this server.'), {
-        status: 409
+        status: 409,code:'SERVER_BUSY'
       });
       hostBusy.add(id);
       try {

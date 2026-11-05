@@ -1,5 +1,7 @@
 import {syncDemoProfiles} from './demo-profiles';
 import {ensureDemoCommunity} from './demo-community';
+import {ensureDemoWorkflows} from './demo-workflows';
+import {ensureDemoConfigs} from './demo-configs';
 import {tryIdentity} from '../shared/ban-identity';
 import { PLANS } from '../server/plans.js';
 const now = Date.now();
@@ -61,6 +63,8 @@ export function upgradeDemo(data) {
   data.runs ??= data.schedules.flatMap(task=>[{id:`run-${task.id}`,schedule_id:task.id,server_id:task.server_id,started_at:now-3600000,finished_at:now-3599000,status:'success',detail:'Simulated command acknowledged.'}]);
   syncDemoProfiles(data);
   ensureDemoCommunity(data);
+  ensureDemoWorkflows(data);
+  ensureDemoConfigs(data);
   return data;
 }
 export function demoHealth(server,hours=24) {
