@@ -280,12 +280,13 @@ export function createOperations(db, vault, service, hosting = createHostingAdap
       });
       await db.withWorkspaceLock(workspace,async()=>{await service.getServer(workspace,id);await assertWorkflowIdle(db,id);
       await db.prepare('INSERT INTO hosting_connections VALUES(?,?,?,?,?,?,?) ON CONFLICT(server_id) DO UPDATE SET provider=excluded.provider,origin=excluded.origin,remote_id=excluded.remote_id,api_key=excluded.api_key,verified_at=excluded.verified_at').run(id, workspace, value.provider, new URL(value.origin).origin, value.remote_id, vault.encrypt(key), Date.now());
+      await db.prepare("UPDATE servers SET metadata_revision=metadata_revision+1,detected_metadata='{}'::jsonb,map=CASE WHEN metadata_auto=1 THEN '' ELSE map END,max_players=CASE WHEN metadata_auto=1 THEN NULL ELSE max_players END WHERE id=? AND workspace_id=?").run(id,workspace);
       await audit(db, workspace, 'Hosting panel connected', hostingCapabilities(value.provider).name+' connection verified.', 'success', id);});
       return (await this.hostingLinks(workspace)).find(link => link.server_id === id);
     },
     async disconnectHosting(workspace, id) {
       await service.getServer(workspace, id, false);
-      await db.withWorkspaceLock(workspace,async()=>{await assertWorkflowIdle(db,id);await db.prepare('DELETE FROM hosting_connections WHERE server_id=? AND workspace_id=?').run(id, workspace);});
+      await db.withWorkspaceLock(workspace,async()=>{await assertWorkflowIdle(db,id);await db.prepare('DELETE FROM hosting_connections WHERE server_id=? AND workspace_id=?').run(id, workspace);await db.prepare("UPDATE servers SET metadata_revision=metadata_revision+1,detected_metadata='{}'::jsonb,map=CASE WHEN metadata_auto=1 THEN '' ELSE map END,max_players=CASE WHEN metadata_auto=1 THEN NULL ELSE max_players END WHERE id=? AND workspace_id=?").run(id,workspace);});
     },
     async hostingStatus(workspace, id) {
       const connection = await hostConnection(workspace, id);

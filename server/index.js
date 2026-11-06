@@ -12,7 +12,7 @@ let db,cache,server,bot,interval,workflows,workflowTimer,deliveryTimer,delivery,
 async function tick(){
   if(active||stopping)return;active=true;
   try{
-    await service.runDueSchedules();await service.pollAll((ws,message)=>sendAlert(bot,ws,message));
+    await service.runDueSchedules();await service.pollAll((ws,message)=>sendAlert(bot,ws,message));await service.pollMetadata();
     if(cycle++%15===0)await billing.reconcile();
     await store?.reconcile();
     await db.prepare('DELETE FROM sessions WHERE expires_at<?').run(Date.now());

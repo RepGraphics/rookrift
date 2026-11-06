@@ -509,6 +509,7 @@ export function createApp({
     res.json({ server_id: server.id, token, endpoint: `${origin}/api/link-events`, usage: 'Authorization: Bearer <token>' });
   });
   app.post('/api/servers/bulk-actions', async (req, res) => res.json(await service.bulkAction(req.workspace.id, req.body)));
+  app.post('/api/servers/:id/discovery',async(req,res)=>res.json(await service.refreshMetadata(req.workspace.id,req.params.id,{force:true})));
   app.delete('/api/servers/:id', async (req, res) => {
     res.json(await service.removeServer(req.workspace.id, req.params.id));
   });

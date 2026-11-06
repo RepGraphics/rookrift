@@ -3,6 +3,21 @@ import { isIP } from 'node:net';
 import { resolveTarget } from './games.js';
 import {assertHostingCapability,hostingCapabilities} from '../shared/hosting-providers.js';
 import WebSocket from 'ws';
+import {cleanServerMetadata} from './server-query.js';
+export function metadataFromVariables(rows){
+ const variables=Object.fromEntries((Array.isArray(rows)?rows:[]).slice(0,200).map(row=>{const value=row.attributes||row;return[value.env_variable,value.server_value];}));
+ const first=names=>names.map(name=>variables[name]).find(value=>value!==undefined&&value!==null&&value!=='');
+ return cleanServerMetadata({map:first(['SERVER_MAP','ARK_MAP','MAP_NAME','MAP','LEVEL_NAME','WORLD_NAME']),max_players:first(['MAX_PLAYERS','SERVER_MAX_PLAYERS','MAX_CLIENTS']),query_port:first(['QUERY_PORT','SERVER_QUERY_PORT'])});
+}
+export function metadataFromConfig(game,text){
+ if(typeof text!=='string'||Buffer.byteLength(text)>1048576)return{};
+ if(game==='minecraft'){
+  const values={};for(const line of text.split(/\r?\n/)){const match=line.match(/^\s*(level-name|max-players)\s*[=:]\s*(.*)$/);if(match)values[match[1]]=match[2].replace(/\\u([a-f0-9]{4})/gi,(_,hex)=>String.fromCharCode(parseInt(hex,16))).replace(/\\([\\ :=#!])/g,'$1');}
+  return cleanServerMetadata({map:values['level-name'],max_players:values['max-players']});
+ }
+ if(game==='dayz'){const clean=text.replace(/\/\*[\s\S]*?\*\//g,'').replace(/\/\/[^\n]*/g,''),mission=clean.match(/\btemplate\s*=\s*"([^"\r\n]+)"/i)?.[1];return cleanServerMetadata({map:mission?.includes('.')?mission.split('.').at(-1):undefined,max_players:clean.match(/\bmaxPlayers\s*=\s*(\d+)\s*;/i)?.[1]});}
+ return{};
+}
 export async function securePanelRequest(origin, path, key, method = 'GET', body,options={}) {
   const url = new URL(origin);
   if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash) throw Object.assign(new Error('Use an HTTPS panel origin without a path, query, or credentials.'),{status:400});
@@ -30,6 +45,14 @@ function createPanelAdapter(request,{WebSocketImpl=WebSocket,resolveSocket=resol
   const base=connection=>`/api/client/servers/${encodeURIComponent(connection.remote_id)}`;
   const call=(connection,path,method,body,options)=>request(connection.origin,base(connection)+path,connection.key,method,body,options);
   return {
+    async metadata(connection,game){
+      const path=game==='minecraft'?'/server.properties':game==='dayz'?'/serverDZ.cfg':null;
+      const results=await Promise.allSettled([call(connection,'/startup'),...(path?[call(connection,'/files/contents?file='+encodeURIComponent(path),'GET',undefined,{text:true})]:[])]);
+      if(results.every(result=>result.status==='rejected'))throw Object.assign(new Error('Hosting metadata is unavailable.'),{status:502});
+      const startup=results[0].status==='fulfilled'?metadataFromVariables(results[0].value.data):{},file=results[1]?.status==='fulfilled'?metadataFromConfig(game,results[1].value):{},value={...startup,...file},sources={};
+      for(const key of ['map','max_players'])if(value[key]!==undefined)sources[key]=(connection.provider||'pterodactyl')+(file[key]!==undefined?'-file':'-startup');
+      return{...value,sources};
+    },
     async openConsole(connection,onLine,onClose=()=>{}) {
       async function session(){const data=await call(connection,'/websocket'),value=attributes(data?.data||data);if(typeof value.socket!=='string'||typeof value.token!=='string'||!value.token)throw Object.assign(new Error('The panel did not return a console session.'),{status:502});const url=new URL(value.socket);if(url.protocol!=='wss:'||url.username||url.password)throw Object.assign(new Error('The console must use a secure WebSocket URL.'),{status:502});const address=await resolveSocket(url.hostname,process.env.ALLOW_PRIVATE_HOSTING==='true');return{...value,url,address};}
       const initial=await session();
@@ -83,6 +106,7 @@ export function createNitradoAdapter(request=securePanelRequest){
  const call=async(c,suffix='',method='GET',body)=>{if(c.origin!==origin||!/^\d{1,14}$/.test(c.remote_id))throw Object.assign(new Error('Use the Nitrado API origin and a numeric service ID.'),{status:400});const result=await request(origin,'/services/'+c.remote_id+'/gameservers'+suffix,c.key,method,body,{form:method!=='GET'});if(result?.status!=='success')fail('Nitrado did not accept the request. Check service permissions and availability.');return result.data||{};};
  const details=async c=>{const d=(await call(c)).gameserver;if(!d||typeof d.status!=='string'||String(d.service_id)!==c.remote_id)fail('Nitrado did not return the requested game service.');return d;};
  return{
+  async metadata(c){const d=await details(c),live=cleanServerMetadata({map:d.query?.map,max_players:d.query?.player_max}),configured=cleanServerMetadata({map:d.settings?.config?.map,max_players:d.settings?.config?.maxplayers,query_port:d.query_port}),value={...configured,...live},sources={};for(const key of ['map','max_players'])if(value[key]!==undefined)sources[key]=live[key]!==undefined?'nitrado-query':'nitrado-config';return{...value,sources};},
   async resources(c){const d=await details(c);return{state:({started:'running',stopped:'offline',stopping:'stopping',restarting:'starting',gs_installation:'starting',backup_restore:'starting',backup_creation:'running'})[d.status]||'unknown',provider_state:d.status,cpu:null,memory_bytes:null,disk_bytes:null,uptime_ms:null};},
   async action(c,action){assertHostingCapability('nitrado',action==='backup'?'backups':action);if(!['start','stop','restart'].includes(action))throw Object.assign(new Error('Unsupported hosting action.'),{status:400});if(action==='start'){const d=await details(c);if(d.status!=='stopped')throw Object.assign(new Error('Nitrado must report the service stopped before starting its current game.'),{status:409});if(typeof d.game!=='string'||!/^[a-zA-Z0-9_-]{1,80}$/.test(d.game))fail('Nitrado did not identify an installed current game. Start it once in the provider panel.');await call(c,'/games/start','POST',{game:d.game});}else await call(c,'/'+action,'POST',{message:'Requested through Rookrift'});return{accepted:true,detail:'Nitrado accepted the '+action+' request. Refresh status to verify the process transition.'};},
   async backups(){return[];}
@@ -93,6 +117,7 @@ export function createHostingAdapter(request=securePanelRequest,options={}){
  const choose=c=>{if(!['pterodactyl','pelican','nitrado'].includes(c.provider||'pterodactyl'))throw Object.assign(new Error('Unsupported hosting provider.'),{status:400});return c.provider==='nitrado'?nitrado:panel;};
  return{
   capabilities:c=>hostingCapabilities(c.provider),
+  metadata:(c,game)=>choose(c).metadata(c,game),
   resources:c=>choose(c).resources(c),
   backups:c=>choose(c).backups(c),
   action:(c,action,name)=>{assertHostingCapability(c.provider,action==='backup'?'backups':action);return choose(c).action(c,action,name);},

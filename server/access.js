@@ -64,7 +64,7 @@ export async function authorizeRequest(db, req) {
     await server(req.query.server_id);
     return;
   }
-  let match = path.match(/^\/servers\/([^/]+)(?:\/(actions|hosting|link-agent|linking)(?:\/(actions))?)?$/);
+  let match = path.match(/^\/servers\/([^/]+)(?:\/(actions|hosting|link-agent|linking|discovery)(?:\/(actions))?)?$/);
   if (path === '/servers' && method === 'POST') {
     if (admin && access.server_ids === null) return;
     deny();

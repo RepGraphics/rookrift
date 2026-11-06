@@ -11,18 +11,25 @@ import { maintenanceState, renderAnnouncement, observeHealth, notify } from './o
 import { observePlayers } from './player-profiles.js';
 import { nextRun,validTimeZone } from '../shared/scheduling.js';
 import { assertWorkflowIdle } from './workflows.js';
+import {createMetadataDiscovery} from './server-metadata.js';
+import {cleanServerMetadata} from './server-query.js';
 const serverFields = z.object({
   name: z.string().trim().min(2).max(60),
   game: z.enum(['asa', 'ase','minecraft','dayz']),
-  map: z.string().trim().min(1).max(60),
+  map: z.string().trim().max(60),
   host: z.string().trim().min(1).max(253).regex(/^[a-zA-Z0-9.:-]+$/, 'Enter a hostname or IP address without a URL or port.'),
   port: z.coerce.number().int().min(1).max(65535),
   password: z.string().min(1).max(200),
-  max_players: z.coerce.number().int().min(1).max(1000),
+  max_players: z.coerce.number().int().min(1).max(1000).nullable(),
+  query_port:z.preprocess(value=>value===''||value===null?null:value,z.coerce.number().int().min(1).max(65535).nullable()),
+  metadata_auto:z.boolean(),
   cluster: z.string().trim().max(40),
   notes: z.string().trim().max(2000)
 });
 export const serverSchema = serverFields.extend({
+  map:serverFields.shape.map.default(''),
+  metadata_auto:serverFields.shape.metadata_auto.default(false),
+  query_port:serverFields.shape.query_port.default(null),
   max_players: serverFields.shape.max_players.default(70),
   cluster: serverFields.shape.cluster.default(''),
   notes: serverFields.shape.notes.default('')
@@ -49,10 +56,10 @@ export const bulkSchema = z.object({
   action: z.enum(['status', 'save', 'broadcast']),
   message: z.string().trim().max(300).optional()
 }).strict();
-export function createService(db, vault, transport = runRcon) {
+export function createService(db, vault, transport = runRcon,{metadata=createMetadataDiscovery(db,vault)}={}) {
   let requestBackup;
   const busy = new Set(),
-    runningTasks = new Set();
+    runningTasks = new Set(),metadataBusy=new Set();
   const workspace = async id => await db.prepare('SELECT * FROM workspaces WHERE id=?').get(id);
   async function getServer(workspaceId, serverId, enforce = true) {
     const state=await db.prepare('SELECT w.closed_at,u.deleting_at FROM workspaces w JOIN users u ON u.id=w.owner_id WHERE w.id=?').get(workspaceId);if(!state||state.closed_at||state.deleting_at)throw Object.assign(new Error('This workspace is closing or closed.'),{status:409});
@@ -79,18 +86,42 @@ export function createService(db, vault, transport = runRcon) {
     return schedules[index];
   }
   return {
+    async refreshMetadata(workspaceId,id,{force=false}={}){
+      const server=await getServer(workspaceId,id),previous=server.detected_metadata||{},now=Date.now();
+      if((!force&&!server.metadata_auto)||metadataBusy.has(id)||now-(previous.checked_at||0)<(force?15000:300000))return publicServer(server);
+      metadataBusy.add(id);
+      try{
+        let result;try{result=await metadata(server);}catch{result={warning:'Metadata discovery is unavailable. Check query settings and hosting read permissions.'};}
+        const values=cleanServerMetadata(result||{});
+        return await db.withWorkspaceLock(workspaceId,async()=>{
+          const current=await getServer(workspaceId,id);if(current.metadata_revision!==server.metadata_revision)return publicServer(current);
+          const detected={...current.detected_metadata,checked_at:now,warning:String(result?.warning||'').slice(0,250),status:values.map&&values.max_players?'ready':values.map||values.max_players?'partial':'unavailable'};
+          for(const field of ['map','max_players'])if(values[field]!==undefined){detected[field]=values[field];detected[field+'_source']=result.sources?.[field]||'server-query';detected[field+'_checked_at']=now;detected.last_success_at=now;}
+          if(values.query_port)detected.query_port=values.query_port;
+          await db.prepare('UPDATE servers SET detected_metadata=?,map=?,max_players=? WHERE id=? AND workspace_id=? AND metadata_revision=?').run(JSON.stringify(detected),current.metadata_auto&&values.map!==undefined?values.map:current.map,current.metadata_auto&&values.max_players!==undefined?values.max_players:current.max_players,id,workspaceId,server.metadata_revision);
+          return publicServer(await getServer(workspaceId,id));
+        });
+      }finally{metadataBusy.delete(id);}
+    },
+    async pollMetadata(){
+      for(const ws of await db.prepare('SELECT * FROM workspaces WHERE closed_at IS NULL').all()){
+        const servers=(await listServers(db,ws.id)).slice(0,effectivePlan(ws).servers).filter(server=>server.metadata_auto);
+        for(let index=0;index<servers.length;index+=4)await Promise.all(servers.slice(index,index+4).map(server=>this.refreshMetadata(ws.id,server.id).catch(()=>{})));
+      }
+    },
     setBackupHandler(handler){requestBackup=handler;},
     getServer,
     isBusy:id=>busy.has(id),
     getSchedule,
     async addServer(workspaceId, input) {
       return await db.withWorkspaceLock(workspaceId, async () => {
-        const data = serverSchema.parse(input);
+        const data = serverSchema.parse(input);if(data.metadata_auto&&!Object.hasOwn(input,'max_players'))data.max_players=null;
+        if(!data.metadata_auto&&(!data.map||!data.max_players))throw Object.assign(new Error('Enter a map/world and player capacity, or enable automatic server details.'),{status:400});
         const focus=(await workspace(workspaceId)).game_focus;if(focus&&focus!=='mixed'&&focus!==data.game)throw Object.assign(new Error('Choose a server matching this workspace game focus.'),{status:400});
         // Serialize quota checks and inserts against this workspace's PostgreSQL row.
         assertCapacity(await workspace(workspaceId), (await listServers(db, workspaceId)).length);
         const id = randomUUID();
-        await db.prepare('INSERT INTO servers(id,workspace_id,name,game,map,host,port,password,max_players,created_at,cluster,notes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)').run(id, workspaceId, data.name, data.game, data.map, data.host, data.port, vault.encrypt(data.password), data.max_players, Date.now(), data.cluster, data.notes);
+        await db.prepare('INSERT INTO servers(id,workspace_id,name,game,map,host,port,password,max_players,created_at,cluster,notes,metadata_auto,query_port) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(id, workspaceId, data.name, data.game, data.map, data.host, data.port, vault.encrypt(data.password), data.max_players, Date.now(), data.cluster, data.notes,Number(data.metadata_auto),data.query_port);
         await audit(db, workspaceId, 'Server connected', `${data.name} added. Awaiting first RCON check.`, 'info', id);
         return publicServer(await getServer(workspaceId, id));
       });
@@ -115,9 +146,14 @@ export function createService(db, vault, transport = runRcon) {
               ...original,
               ...data,
               password: data.password ? vault.encrypt(data.password) : original.password,
+              metadata_auto:data.metadata_auto===undefined?original.metadata_auto:Number(data.metadata_auto),
               maintenance: data.maintenance === undefined ? original.maintenance : Number(data.maintenance)
             };
-          await db.prepare('UPDATE servers SET name=?,game=?,map=?,host=?,port=?,password=?,max_players=?,cluster=?,maintenance=?,notes=? WHERE id=? AND workspace_id=?').run(updated.name, updated.game, updated.map, updated.host, updated.port, updated.password, updated.max_players, updated.cluster, updated.maintenance, updated.notes, id, workspaceId);
+          if(!updated.metadata_auto&&(!updated.map||!updated.max_players))throw Object.assign(new Error('Enter a map/world and player capacity before disabling automatic details.'),{status:400});
+          const metadataChanged=changed||data.query_port!==undefined&&data.query_port!==original.query_port;
+          let detected=metadataChanged?{}:original.detected_metadata||{};
+          if(updated.metadata_auto){if(metadataChanged){updated.map='';updated.max_players=null;}else{if(detected.map)updated.map=detected.map;if(detected.max_players)updated.max_players=detected.max_players;}}
+          await db.prepare('UPDATE servers SET name=?,game=?,map=?,host=?,port=?,password=?,max_players=?,cluster=?,maintenance=?,notes=?,metadata_auto=?,query_port=?,detected_metadata=?,metadata_revision=metadata_revision+1 WHERE id=? AND workspace_id=?').run(updated.name, updated.game, updated.map, updated.host, updated.port, updated.password, updated.max_players, updated.cluster, updated.maintenance, updated.notes,updated.metadata_auto,updated.query_port,JSON.stringify(detected), id, workspaceId);
           if (changed) await db.prepare("UPDATE servers SET status='unknown',players=0,latency=NULL,last_checked=NULL,player_list='[]',failed_checks=0,failed_since=NULL WHERE id=?").run(id);
           await audit(db, workspaceId, original.maintenance !== updated.maintenance ? updated.maintenance ? 'Maintenance enabled' : 'Maintenance ended' : 'Server settings updated', updated.name, 'info', id);
           return publicServer(await getServer(workspaceId, id, false));
@@ -270,6 +306,8 @@ export function createService(db, vault, transport = runRcon) {
           const checkedAt = Date.now();
           await db.prepare('UPDATE servers SET status=?,players=?,player_list=?,latency=?,last_checked=? WHERE id=?').run('online', players.length, JSON.stringify(players), result.latency, checkedAt, serverId);
           await observePlayers(db, server, players, checkedAt);
+          const metadata=cleanServerMetadata(result.metadata||{});
+          if(server.metadata_auto&&server.game==='minecraft'&&metadata.max_players)await db.withWorkspaceLock(workspaceId,async()=>{const current=await getServer(workspaceId,serverId);if(current.metadata_revision!==server.metadata_revision||!current.metadata_auto)return;const detected={...current.detected_metadata,max_players:metadata.max_players,max_players_source:'minecraft-rcon',max_players_checked_at:checkedAt,last_success_at:checkedAt};await db.prepare('UPDATE servers SET max_players=?,detected_metadata=? WHERE id=?').run(metadata.max_players,JSON.stringify(detected),serverId);});
         }
         if (action !== 'status' && action !== 'chat') await audit(db, workspaceId, {
           save: 'World saved',

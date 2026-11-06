@@ -59,5 +59,6 @@ export async function runRcon(server, vault, action, message) {
   const start = Date.now();
   const output = await (server.game==='dayz'?battleyeRcon:sourceRcon)({host,port:server.port,password:vault.decrypt(server.password),command});
   const players=['players','status'].includes(action)?server.game==='minecraft'?minecraftPlayers(output):server.game==='dayz'?battleyePlayers(output):parsePlayers(output):undefined;
-  return {output:server.game==='dayz'&&players?(players.join('\n')||'No players connected.'):output||'Command acknowledged.',latency:Date.now()-start,...(players?{players}:{})};
+  const capacity=server.game==='minecraft'&&players?Number(output.replace(/\u00a7[0-9a-fk-or]/gi,'').match(/of a max of (\d+) players online:/i)?.[1]):0;
+  return {output:server.game==='dayz'&&players?(players.join('\n')||'No players connected.'):output||'Command acknowledged.',latency:Date.now()-start,...(players?{players}:{}),...(capacity>0&&capacity<=1000?{metadata:{max_players:capacity}}:{})};
 }

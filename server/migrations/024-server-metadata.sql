@@ -1,0 +1,5 @@
+ALTER TABLE servers ALTER COLUMN max_players DROP NOT NULL;
+ALTER TABLE servers ADD COLUMN metadata_auto INTEGER NOT NULL DEFAULT 0 CHECK(metadata_auto IN (0,1));
+ALTER TABLE servers ADD COLUMN query_port INTEGER CHECK(query_port BETWEEN 1 AND 65535);
+ALTER TABLE servers ADD COLUMN detected_metadata JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE servers ADD COLUMN metadata_revision INTEGER NOT NULL DEFAULT 0;

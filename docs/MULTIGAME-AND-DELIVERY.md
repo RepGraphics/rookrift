@@ -19,7 +19,7 @@ Minecraft Java and DayZ adapters are **beta**: local TCP/UDP protocol fixtures, 
 
 Unsupported operations are checked in the backend before execution. Bulk actions validate every selected game before sending any command. Schedules/workflows also reject unsupported game actions. DayZ kicks require transient player slots and unbans require ban-list indexes; Rookrift does not guess those from a GUID. Use an external verified administration workflow for these operations.
 
-Process start/stop/restart and backups require a compatible hosting connector; RCON alone cannot start a stopped process. Rookrift does not install a game server by adding its RCON connection. Status indicates an RCON response, not a verified public game connection or full host health. Server capacity is the configured maximum, not necessarily a value returned by native player lists.
+Process start/stop/restart and backups require a compatible hosting connector; RCON alone cannot start a stopped process. Rookrift does not install a game server by adding its RCON connection. Status indicates an RCON response, not a verified public game connection or full host health. Version 0.21 adds [automatic map/world and capacity discovery](SERVER-DISCOVERY.md). Query/RCON values and hosting configuration fallbacks have separate source labels; configured values may be overridden or await a restart.
 
 ## Minecraft Java setup
 
