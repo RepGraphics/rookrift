@@ -1,0 +1,1 @@
+export function bundleContents(value){try{const parsed=typeof value==='string'?JSON.parse(value):value;return Array.isArray(parsed)?parsed.filter(item=>item&&typeof item.title==='string').slice(0,6):[];}catch{return[];}}

@@ -436,6 +436,8 @@ export function createApp({
   app.put('/api/community/store/goal',async(req,res)=>res.json(await store.growth.saveGoal(req.workspace.id,req.body)));
   app.post('/api/community/store/orders/:id/cancel',async(req,res)=>res.json(await store.cancelOrder(req.workspace.id,req.params.id)));
   app.put('/api/community/store/settings',async(req,res)=>res.json(await store.settings(req.workspace.id,req.body)));
+  app.post('/api/community/store/bundles',async(req,res)=>res.status(201).json(await store.bundle(req.workspace.id,req.body)));
+  app.post('/api/community/store/products/:id/duplicate',async(req,res)=>res.status(201).json(await store.duplicate(req.workspace.id,req.params.id)));
   app.post('/api/community/store/products',async(req,res)=>res.status(201).json(await store.product(req.workspace.id,null,req.body)));
   app.patch('/api/community/store/products/:id',async(req,res)=>res.json(await store.product(req.workspace.id,req.params.id,req.body)));
   app.delete('/api/community/store/products/:id',async(req,res)=>res.json(await store.archive(req.workspace.id,req.params.id)));

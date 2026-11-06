@@ -1,3 +1,4 @@
+import {useViewState} from './use-view-state';
 import {CommunityAccountMenu,CommunityAccountArea} from './community-account-ui';
 import {Avatar} from './avatar';
 import {LegalLinks} from './legal-links';
@@ -22,7 +23,7 @@ const statusLabel={pending:'Awaiting review',approved:'Approved',declined:'Decli
 
 export function CommunityPage({data,request,mutate,busy,demo,Dialog,notify}){
   const canManage=data.access?.role==='owner'||data.access?.role==='admin',
-    [tab,setTab]=useState(canManage?(new URLSearchParams(window.location.search).has('community_payments')?'store':'hub'):'join'),[records,setRecords]=useState(null),[queue,setQueue]=useState([]),[filter,setFilter]=useState('pending'),[modal,setModal]=useState(null),[failure,setFailure]=useState(''),[recordSort,setRecordSort]=useState('newest');
+    [tab,setTab]=useViewState('community',canManage?(new URLSearchParams(window.location.search).has('community_payments')?'store':'hub'):'join',canManage?['hub','builder','store','linking','news','events','join','staff']:['join','staff']),[records,setRecords]=useState(null),[queue,setQueue]=useState([]),[filter,setFilter]=useState('pending'),[modal,setModal]=useState(null),[failure,setFailure]=useState(''),[recordSort,setRecordSort]=useState('newest');
   async function read(path){return demo?demoCommunityRequest(structuredClone(data),path):request(path,'GET');}
   async function reload(){try{const [next,applications]=await Promise.all([canManage?read('/community'):null,read('/community/applications?status='+filter)]);setRecords(next);setQueue(applications);setFailure('');}catch(error){setFailure(error.message);}}
   useEffect(()=>{let active=true;(async()=>{try{const [next,applications]=await Promise.all([canManage?read('/community'):null,read('/community/applications?status='+filter)]);if(active){setRecords(next);setQueue(applications);setFailure('');}}catch(error){if(active)setFailure(error.message);}})();return()=>{active=false;};},[data,filter]);

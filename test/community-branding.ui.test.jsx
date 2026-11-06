@@ -8,7 +8,7 @@ import {DEFAULT_DESIGN} from '../shared/community-design';
 
 beforeEach(()=>{localStorage.clear();window.history.replaceState(null,'','/dashboard');});afterEach(cleanup);
 const stored=()=>JSON.parse(localStorage.getItem('rookrift-demo-v1'));
-async function editor(user){await user.click(screen.getByRole('button',{name:'Community hub'}));await screen.findByLabelText('Community name');await user.click(screen.getByRole('button',{name:'Site editor'}));await user.click(await screen.findByRole('button',{name:'Brand & appearance'}));}
+async function editor(user){await user.click(screen.getByRole('button',{name:'Community hub'}));await user.click(await screen.findByRole('button',{name:'Community page'}));await screen.findByLabelText('Community name');await user.click(screen.getByRole('button',{name:'Site editor'}));await user.click(await screen.findByRole('button',{name:'Brand & appearance'}));}
 
 test('public header uses community branding and remembers a visitor appearance choice',async()=>{
  const data=loadDemo();data.community.site.title='Raven Coast';data.community.site.logo_url='https://example.com/raven.png';storeDemo(data);const user=userEvent.setup();render(<CommunityPortal slug="the-outpost" demo/>);

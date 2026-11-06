@@ -62,3 +62,7 @@ Card details are handled by Stripe. Public store responses exclude command templ
 ## Promotions and growth (0.15)
 
 See [store growth](STORE-GROWTH.md) for coupon codes, scheduled sales, availability/claim limits, original checkout resumption/cancellation, aggregate analytics/CSV and opt-in monthly funding goals. The catalog and orders now snapshot base prices, discounts and first verified payment time. Free claims enter the same durable delivery queue without requiring configured Stripe credentials. Paid products require at least 0.50. Schema 19 is required. These additions do not add recurring supporter billing, gift cards or a verified external-provider payment API.
+
+## Bundles and Discord shopping (0.16)
+
+Owners can combine 2-6 same-game packages into a reviewed draft with a single price and staff/combined automatic delivery. Product duplication creates an unpublished copy without actions or availability limits. See [navigation and packages](NAVIGATION-AND-PACKAGES.md) for snapshot semantics, independent bundle limits and the new ephemeral `/shop` and `/orders` commands. Store tabs now survive reloads through the dashboard URL. Schema 20 is required.

@@ -1,3 +1,4 @@
+import {useViewState} from './use-view-state';
 import {hostingCapabilities} from '../shared/hosting-providers';
 import React,{useEffect,useState} from 'react';
 import {FileCode2,Plus,History,Pencil,Download,Trash2,ArrowRight,ShieldCheck} from 'lucide-react';
@@ -8,7 +9,7 @@ import './config.css';
 const date=time=>new Date(time).toLocaleString('en-GB',{dateStyle:'medium',timeStyle:'short'});
 function download(name,body){const url=URL.createObjectURL(new Blob([body],{type:'text/plain;charset=utf-8'})),link=document.createElement('a');link.href=url;link.download=name;link.click();setTimeout(()=>URL.revokeObjectURL(url),0);}
 export function ConfigPage({data,request,mutate,busy,demo,Dialog,notify}){
-  const [view,setView]=useState(null),[tab,setTab]=useState('templates'),[modal,setModal]=useState(null),[error,setError]=useState('');
+  const [view,setView]=useState(null),[tab,setTab]=useViewState('configuration','templates'),[modal,setModal]=useState(null),[error,setError]=useState('');
   const admin=['owner','admin'].includes(data.access?.role||'owner'),manage=admin&&(data.access?.server_ids===null||data.access?.server_ids===undefined);
   const read=async path=>demo?demoConfigRequest(structuredClone(data),path):request(path,'GET');
   async function load(){try{setView(await read('/config-templates'));setError('');}catch(error){setError(error.message);}}

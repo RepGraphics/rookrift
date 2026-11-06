@@ -1,4 +1,5 @@
 import {createCommunity} from './community.js';
+import {handleStoreInteraction} from './store-discord.js';
 import { Client, GatewayIntentBits, PermissionFlagsBits, EmbedBuilder, SlashCommandBuilder, MessageFlags } from 'discord.js';
 import { listServers } from './db.js';
 import { effectivePlan } from './plans.js';
@@ -24,9 +25,11 @@ export function commandDefinitions() {
   builder.addSubcommand(c=>c.setName('workflows').setDescription('List workflow definitions and active runs'));
   builder.addSubcommand(c=>c.setName('workflow-run').setDescription('Start a saved workflow').addStringOption(o=>o.setName('workflow').setDescription('Saved workflow').setRequired(true).setAutocomplete(true)).addStringOption(o=>o.setName('confirmation').setDescription('Exact server name, required for restart workflows').setMaxLength(60)));
   builder.addSubcommand(c=>c.setName('workflow-cancel').setDescription('Cancel the remaining steps of a workflow run').addStringOption(o=>o.setName('run_id').setDescription('Run ID from the dashboard or workflow list').setRequired(true)));
-  return [builder.toJSON()];
+  const shop=new SlashCommandBuilder().setName('shop').setDescription('Browse this community’s Rookrift store').setContexts(0);
+  const orders=new SlashCommandBuilder().setName('orders').setDescription('Privately view your recent community purchases').setContexts(0);
+  return [builder.toJSON(),shop.toJSON(),orders.toJSON()];
 }
-export async function startBot(db, service, env = process.env,workflows) {
+export async function startBot(db, service, env = process.env,workflows,store) {
   if (!env.DISCORD_BOT_TOKEN) return null;
   const client = new Client({
     intents: [GatewayIntentBits.Guilds]
@@ -34,6 +37,7 @@ export async function startBot(db, service, env = process.env,workflows) {
   client.on('error', () => console.error('Discord client error. Check connectivity.'));
   client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand() && !interaction.isAutocomplete()) return;
+    if(store&&await handleStoreInteraction(db,store,interaction,env))return;
     if (interaction.commandName !== 'rookrift') return;
     try {
       const permitted = interaction.inGuild() && interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild);

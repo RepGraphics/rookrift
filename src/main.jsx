@@ -1,3 +1,5 @@
+import {legacyDashboardView,VIEW_VALUES} from '../shared/view-state';
+import {useViewState} from './use-view-state';
 import {WorkspaceSettings} from './workspace-settings';
 import {Avatar} from './avatar';
 import {AccountSettings} from './account-settings-ui';
@@ -56,10 +58,11 @@ function useAppearance(){const {theme,toggleTheme}=useTheme();return <button cla
 
 export function App() {
   const themeControl=useAppearance();
-  const [data, setData] = useState(isDemo ? loadDemo : null), [error, setError] = useState(''), [page, setPage] = useState(()=>new URLSearchParams(window.location.search).has('account')?'account':new URLSearchParams(window.location.search).get('settings')==='discord'?'settings':new URLSearchParams(window.location.search).has('community_payments')?'community':new URLSearchParams(window.location.search).has('billing')||['tribe','cluster'].includes(new URLSearchParams(window.location.search).get('plan'))?'billing':'overview'), [modal, setModal] = useState(null), [toast, setToast] = useState(null), [busy, setBusy] = useState(false), [filter, setFilter] = useState('all'), [search, setSearch] = useState(''), [mobile, setMobile] = useState(false), [chartRange, setChartRange] = useState(24);
+  const [data, setData] = useState(isDemo ? loadDemo : null), [error, setError] = useState(''), [modal, setModal] = useState(null), [toast, setToast] = useState(null), [busy, setBusy] = useState(false), [filter, setFilter] = useState('all'), [search, setSearch] = useState(''), [mobile, setMobile] = useState(false), [chartRange, setChartRange] = useState(24);
+  const [page,setPage]=useViewState('view',()=>legacyDashboardView(window.location.search),VIEW_VALUES.view.filter(id=>id!=='history'));
   const [inviteToken,setInviteToken]=useState(readPendingInvite);
   const loadSequence=useRef(0);
-  const [opsTab,setOpsTab]=useState('health');
+  const [opsTab,setOpsTab]=useViewState('operations','health');
   const [opsServerId,setOpsServerId]=useState('');
   const notify = (text, failure = false) => { setToast({ text, failure }); };
   useEffect(() => { if (!toast) return; const id = setTimeout(() => setToast(null), 4500); return () => clearTimeout(id); }, [toast]);
@@ -67,6 +70,7 @@ export function App() {
   useEffect(() => { if (isDemo) return; fetchData().catch(e => setError(e.message)); const id = setInterval(() => fetchData().catch(() => {}), 30000); return () => clearInterval(id); }, []);
   useEffect(() => { const handler = e => { if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); setModal({ type: 'search' }); } }; document.addEventListener('keydown', handler); return () => document.removeEventListener('keydown', handler); }, []);
   const updateIdentity=profile=>setData(current=>{const next={...current,user:{...current.user,name:profile.name,username:profile.username,avatar_url:avatarSource(profile)}};delete next.user.avatar;if(isDemo)storeDemo(next);return next;});
+  useEffect(()=>{setModal(null);setMobile(false);},[page]);
   const navigate = id => { setPage(id); setMobile(false); setSearch(''); setFilter('all'); };
   const request = async (path, method = 'POST', body) => {
     const response = await fetch(`/api${path}`, { method, headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': data.csrf }, ...(body ? { body: JSON.stringify(body) } : {}) });
@@ -87,7 +91,7 @@ export function App() {
   const createWorkspace=async input=>{setBusy(true);try{if(isDemo){const next=createDemoWorkspace(data,input);storeDemo(next);setData(next);}else{await request('/workspaces','POST',input);await fetchData();}setPage('overview');notify('Workspace created');return true;}catch(error){notify(error.message,true);return false;}finally{setBusy(false);}};
   const clearInvite=()=>{try{sessionStorage.removeItem('rookrift-pending-invite');}catch{}setInviteToken('');};
   const inviteBanner=!isDemo&&inviteToken?<InviteBanner token={inviteToken} request={request} busy={busy} onDismiss={clearInvite} onAccepted={async()=>{clearInvite();setModal(null);setPage('overview');await fetchData();}}/>:null;
-  if(data.access&&data.access.role!=='owner')return <StaffDashboard accountPage={<AccountPage data={data} request={request} notify={notify} busy={busy} onIdentityChange={updateIdentity}/>} key={data.workspace.id} data={data} request={request} mutate={mutate} busy={busy} onSwitch={switchWorkspace} onCreateWorkspace={createWorkspace} themeControl={themeControl} Dialog={Modal} banner={inviteBanner} notice={toast} dismissNotice={()=>setToast(null)} notify={notify}/>;
+  if(data.access&&data.access.role!=='owner')return <StaffDashboard demo={isDemo} accountPage={<AccountPage data={data} request={request} notify={notify} busy={busy} onIdentityChange={updateIdentity}/>} key={data.workspace.id} data={data} request={request} mutate={mutate} busy={busy} onSwitch={switchWorkspace} onCreateWorkspace={createWorkspace} themeControl={themeControl} Dialog={Modal} banner={inviteBanner} notice={toast} dismissNotice={()=>setToast(null)} notify={notify}/>;
   const plan = PLANS[data.workspace.plan] || PLANS.scout;
   const windows=(data.windows||[]).map((window,index)=>({...window,paused:index>=plan.windows}));
   const servers = data.servers.map((server,index)=>{const active=windows.filter(window=>window.server_ids.includes(server.id)&&windowActive(window));return {...server,paused:index>=plan.servers,in_maintenance:Boolean(server.maintenance)||active.length>0,maintenance_windows:active.map(window=>({id:window.id,name:window.name}))};});

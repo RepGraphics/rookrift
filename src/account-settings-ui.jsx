@@ -1,3 +1,5 @@
+import {ACCOUNT_ALIASES} from '../shared/view-state';
+import {useViewState} from './use-view-state';
 import React,{useEffect,useState} from 'react';
 import {startRegistration} from '@simplewebauthn/browser';
 import {LockKeyhole,MessageCircle,ShieldCheck} from 'lucide-react';
@@ -11,7 +13,7 @@ import './account-settings.css';
 const sections=[['profile','Profile'],['security','Sign-in & security'],['appearance','Appearance'],['billing','Billing history'],['deletion','Delete account']];
 export function AccountSettings({data,request,notify=()=>{},busy=false,onIdentityChange,demo=false,section:controlledSection,onSectionChange,profileExtra,returnTo='/dashboard?account=discord'}){
  const [account,setAccount]=useState(null),[error,setError]=useState(''),[saving,setSaving]=useState(false),[invoices,setInvoices]=useState(null),[billingError,setBillingError]=useState('');
- const [localSection,setLocalSection]=useState(()=>{const value=new URLSearchParams(window.location.search).get('account');return ['delete-verified','deletion'].includes(value)?'deletion':value==='discord'?'security':sections.some(([id])=>id===value)?value:'profile';});
+ const [localSection,setLocalSection]=useViewState('account','profile',undefined,ACCOUNT_ALIASES);
  const section=controlledSection||localSection;
  const load=async()=>{const next=await request('/account?summary=1','GET');setAccount(next);return next;};
  useEffect(()=>{let active=true;setError('');setAccount(null);if(demo){setAccount({profile:{...data.user,email:'demo@rookrift.test',username:data.user.username||'demo',discord_linked:true},security:{totp_enabled:false,passkeys:[]}});}else request('/account?summary=1','GET').then(value=>{if(active)setAccount(value);}).catch(e=>{if(active)setError(e.message);});return()=>{active=false;};},[data.user.id,demo]);

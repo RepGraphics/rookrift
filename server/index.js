@@ -51,7 +51,7 @@ async function start(){
   interval=setInterval(tick,60000);void tick();
   workflowTimer=setInterval(()=>workflows.tick().catch(()=>console.error('Workflow cycle failed; it will retry.')),5000);
   void workflows.tick().catch(()=>console.error('Workflow cycle failed; it will retry.'));
-  startBot(db,service,process.env,workflows).then(client=>{if(stopping)client?.destroy();else bot=client;}).catch(()=>console.error('Discord bot could not connect. Check its token and restart to retry.'));
+  startBot(db,service,process.env,workflows,store).then(client=>{if(stopping)client?.destroy();else bot=client;}).catch(()=>console.error('Discord bot could not connect. Check its token and restart to retry.'));
 }
 process.on('SIGINT',()=>void stop());process.on('SIGTERM',()=>void stop());
 start().catch(async(error)=>{console.error('Rookrift startup failed:',error instanceof Error?error.message:error);await cache?.close();await db?.close().catch(()=>{});process.exit(1);});

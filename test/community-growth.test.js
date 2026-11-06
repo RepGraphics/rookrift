@@ -11,6 +11,10 @@ import {createCommunityStore} from '../server/community-store.js';
 import {createApp} from '../server/app.js';
 import {DEFAULT_DESIGN} from '../shared/community-design.js';
 import {ensurePersonalWorkspace} from '../server/workspaces.js';
+import {handleStoreInteraction} from '../server/store-discord.js';
+import {commandDefinitions} from '../server/bot.js';
+import {MessageFlags,PermissionFlagsBits} from 'discord.js';
+import {discordRegistrationConfig} from '../server/discord-registration.js';
 
 async function fixture(t,options={}){
  const commands=[],awards=[],mailed=[];const db=await openDatabase(':memory:'),vault=createVault(randomBytes(32).toString('hex')),sessions=new Map();let creates=0,uncertain=false;
@@ -37,6 +41,38 @@ async function fixture(t,options={}){
 
 const promotionInput=(extra={})=>({name:'Welcome discount',kind:'coupon',code:'WELCOME10',discount_type:'percent',discount_value:10,minimum_amount:0,product_ids:[],category_ids:[],starts_at:null,ends_at:null,usage_limit:null,customer_limit:null,enabled:true,...extra});
 const availabilityInput=(extra={})=>({stock_limit:null,customer_limit:null,available_from:null,available_until:null,...extra});
+
+test('package bundles copy same-game contents into a new draft and keep order snapshots independent of source edits',async t=>{
+ const f=await fixture(t),first=await f.openStore();await f.store.product('w',null,{title:'Building supplies',description:'A package of building supplies delivered by staff.',game:'asa',price:750,published:true});const second=(await f.store.manage('w')).products.find(p=>p.id!==first.id),input={title:'Explorer bundle',description:'Two supply packages delivered together by staff.',price:1000,source_ids:[first.id,second.id],automatic:false,confirmation:'Explorer bundle'};
+ assert.equal((await f.request('/community/store/bundles','POST',input,'admin')).status,403);assert.equal((await f.request('/community/store/bundles','POST',input,'owner',false)).status,403);
+ assert.equal((await f.request('/community/store/bundles','POST',{...input,confirmation:'wrong'})).status,400);assert.equal((await f.request('/community/store/bundles','POST',{...input,source_ids:[first.id,first.id]})).status,400);
+ const created=await f.request('/community/store/bundles','POST',input);assert.equal(created.status,201);const bundle=created.body.products.find(p=>p.id===created.body.saved_product_id);assert.equal(bundle.published,0);assert.equal(JSON.parse(bundle.bundle_contents).length,2);assert.equal(JSON.parse(bundle.delivery_actions).length,0);
+ await f.store.product('w',bundle.id,{title:bundle.title,description:bundle.description,price:bundle.price,game:'asa',published:true});const result=await f.store.checkout('test-community',{id:'buyer'},{product_id:bundle.id,identifier:'EOS-BUYER',request_id:randomUUID()});let order=await f.db.prepare('SELECT * FROM store_orders WHERE id=?').get(result.order_id);assert.equal(JSON.parse(order.bundle_contents)[0].title,'Starter kit');assert.equal(order.amount,1000);
+ await f.store.product('w',first.id,{title:'Changed source',description:'The source package now has different contents.',game:'asa',price:999,published:false});await f.store.archive('w',second.id);assert.equal(JSON.parse((await f.db.prepare('SELECT bundle_contents FROM store_products WHERE id=?').get(bundle.id)).bundle_contents)[0].title,'Starter kit');assert.equal((await f.store.buyerOrders('test-community',{id:'buyer'}))[0].bundle_contents[1].title,'Building supplies');
+});
+
+test('automatic bundles require compatible, bounded, owner-authorised purchase actions and drafts duplicate without actions',async t=>{
+ const f=await fixture(t),a=await f.openStore();await f.store.product('w',null,{title:'Second package',description:'A second kit delivered with the first package.',game:'asa',price:500,published:true});const b=(await f.store.manage('w')).products.find(p=>p.id!==a.id),input={title:'Combined automatic kit',description:'Two configured kits delivered as a single package.',price:800,source_ids:[a.id,b.id],automatic:true,confirmation:'Combined automatic kit'};
+ await assert.rejects(f.store.bundle('w',input),/Every source package/);f.store.setActionsValidator(async(_,__,actions)=>actions);const action={type:'rcon',server_id:randomUUID(),command_template:'GiveKit {identifier}',identity_kind:'game',target_fingerprint:'fixture',label:'Test world'};for(const p of[a,b])await f.db.prepare('UPDATE store_products SET delivery_actions=? WHERE id=?').run(JSON.stringify([action]),p.id);
+ const result=await f.store.bundle('w',input),bundle=result.products.find(p=>p.id===result.saved_product_id);assert.equal(JSON.parse(bundle.delivery_actions).length,2);
+ const copy=await f.request('/community/store/products/'+bundle.id+'/duplicate','POST',{},'admin');assert.equal(copy.status,201);const cloned=copy.body.products.find(p=>p.id===copy.body.saved_product_id);assert.equal(cloned.title,'Copy of Combined automatic kit');assert.equal(cloned.published,0);assert.equal(cloned.delivery_actions,'[]');assert.equal(cloned.bundle_contents,bundle.bundle_contents);
+ await f.db.prepare("UPDATE store_products SET game='ase' WHERE id=?").run(b.id);await assert.rejects(f.store.bundle('w',input),/same game/);
+});
+
+test('Discord shop and order commands are guild-bound and ephemeral without widening admin command permissions',async t=>{
+ const f=await fixture(t),p=await f.openStore(),guild='223456789012345678',discord='323456789012345678';await f.db.prepare('UPDATE workspaces SET guild_id=? WHERE id=?').run(guild,'w');await f.db.prepare("UPDATE users SET discord_id=? WHERE id='buyer'").run(discord);const pending=await f.store.checkout('test-community',{id:'buyer'},{product_id:p.id,identifier:'PRIVATE-EOS-ID',request_id:randomUUID()});
+ const calls=[],interaction={commandName:'shop',guildId:guild,user:{id:discord},deferred:false,inGuild:()=>true,isAutocomplete:()=>false,deferReply:async value=>{calls.push({defer:value});interaction.deferred=true;},editReply:async value=>calls.push(value),reply:async value=>calls.push(value)};
+ assert.equal(await handleStoreInteraction(f.db,f.store,interaction,{APP_URL:'https://rookrift.example'}),true);assert.equal(calls[0].defer.flags,MessageFlags.Ephemeral);let message=calls.at(-1);assert.ok(message.embeds[0].toJSON().description.includes('Starter kit'));assert.equal(message.components[0].toJSON().components[0].url,'https://rookrift.example/c/test-community?page=store');assert.deepEqual(message.allowedMentions,{parse:[]});
+ calls.length=0;interaction.commandName='orders';interaction.deferred=false;await handleStoreInteraction(f.db,f.store,interaction,{APP_URL:'https://rookrift.example'});assert.ok(calls.at(-1).embeds[0].toJSON().description.includes(pending.order_id));assert.ok(!JSON.stringify(calls.at(-1)).includes('PRIVATE-EOS-ID'));
+ interaction.user.id='423456789012345678';calls.length=0;await handleStoreInteraction(f.db,f.store,interaction,{APP_URL:'https://rookrift.example'});assert.ok(calls.at(-1).content.includes('link this Discord account'));assert.ok(!JSON.stringify(calls).includes(pending.order_id));
+ const definitions=commandDefinitions();assert.equal(definitions.find(c=>c.name==='rookrift').default_member_permissions,String(PermissionFlagsBits.ManageGuild));for(const name of['shop','orders']){const command=definitions.find(c=>c.name===name);assert.deepEqual(command.contexts,[0]);assert.ok(!command.default_member_permissions);}
+});
+
+test('command registration can use encrypted admin configuration while environment values take priority',async t=>{
+ const f=await fixture(t);for(const[key,value]of [['discord_client_id','123456789012345678'],['discord_bot_token','fixture-bot-secret']])await f.db.prepare('INSERT INTO platform_settings VALUES(?,?,?)').run(key,f.vault.encrypt(value),Date.now());
+ const saved=await discordRegistrationConfig(f.db,f.vault,{});assert.equal(saved.clientId,'123456789012345678');assert.equal(saved.botToken,'fixture-bot-secret');
+ const mixed=await discordRegistrationConfig(f.db,f.vault,{DISCORD_CLIENT_ID:'223456789012345678',DISCORD_DEV_GUILD_ID:'323456789012345678'});assert.equal(mixed.clientId,'223456789012345678');assert.equal(mixed.botToken,'fixture-bot-secret');assert.equal(mixed.guildId,'323456789012345678');
+});
 
 test('store promotions validate scope, roles, CSRF and unique codes without exposing codes publicly',async t=>{
  const f=await fixture(t),p=await f.openStore(),path='/community/store/promotions';

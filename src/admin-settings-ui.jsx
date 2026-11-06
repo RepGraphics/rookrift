@@ -1,3 +1,4 @@
+import {useViewState} from './use-view-state';
 import React,{useState} from 'react';
 import {Save} from 'lucide-react';
 import {EmailSettings} from './email-settings-ui';
@@ -14,7 +15,7 @@ const providers={
 };
 const store=[['stripe_connect_secret_key','Connect secret key',true],['stripe_connect_webhook_secret','Connect webhook secret',true]];
 export function AdminSettings({settings,request,onSaved,notify}){
- const [category,setCategory]=useState('email'),[provider,setProvider]=useState(settings.platform_billing_provider?.value||'stripe'),[busy,setBusy]=useState(false),[error,setError]=useState('');
+ const [category,setCategory]=useViewState('integration','email'),[provider,setProvider]=useState(settings.platform_billing_provider?.value||'stripe'),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const selected=categories.find(([id])=>id===category),fields=category==='discord'?discord:category==='store'?store:providers[provider].fields;
  const configured=fields.filter(([key])=>settings[key]?.configured).length;
  async function save(event){event.preventDefault();const form=event.currentTarget,body=Object.fromEntries(new FormData(form));setBusy(true);setError('');try{const result=await request('/platform/settings','PATCH',body);await onSaved();form.reset();notify(result.restart_required?'Settings saved. Restart Rookrift to apply integration changes.':'Settings saved.');}catch(e){setError(e.message);}finally{setBusy(false);}}

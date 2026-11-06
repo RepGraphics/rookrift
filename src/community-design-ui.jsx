@@ -1,3 +1,4 @@
+import {useViewState} from './use-view-state';
 import {AppearanceEditor,CommunityIdentity,CommunityHero} from './community-appearance';
 import {appearanceOf,communityTheme} from '../shared/community-theme';
 import React,{useEffect,useState} from 'react';
@@ -12,7 +13,7 @@ const date=value=>new Date(value).toLocaleString('en-GB',{dateStyle:'medium',tim
 function move(list,index,direction){const next=index+direction;if(next>=0&&next<list.length)[list[index],list[next]]=[list[next],list[index]];}
 
 export function CommunitySiteEditor({site,servers,posts=[],events=[],read,save,busy,workspace}){
- const [draft,setDraft]=useState(null),[published,setPublished]=useState(null),[publishedAt,setPublishedAt]=useState(null),[pageId,setPageId]=useState(''),[undo,setUndo]=useState([]),[error,setError]=useState(''),[working,setWorking]=useState(false),[addType,setAddType]=useState('text'),[editorTab,setEditorTab]=useState('pages');
+ const [draft,setDraft]=useState(null),[published,setPublished]=useState(null),[publishedAt,setPublishedAt]=useState(null),[pageId,setPageId]=useState(''),[undo,setUndo]=useState([]),[error,setError]=useState(''),[working,setWorking]=useState(false),[addType,setAddType]=useState('text'),[editorTab,setEditorTab]=useViewState('editor','pages',['pages','appearance']);
  useEffect(()=>{let alive=true;if(!site)return;Promise.resolve(read('/community/site-builder')).then(result=>{if(alive){setDraft(result.draft);setPublished(result.published);setPublishedAt(result.published_at);setPageId(result.draft.pages[0].id);setError('');}}).catch(e=>{if(alive)setError(e.message);});return()=>{alive=false;};},[workspace,site?.slug]);
  if(!site)return <Empty icon={Globe} title="Give your community a home first" detail="Save the community page details, then customise its design here."/>;
  if(!draft)return <p role={error?'alert':'status'}>{error||'Opening site editor…'}</p>;

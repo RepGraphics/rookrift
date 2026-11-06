@@ -5,7 +5,7 @@ import {App} from '../src/main.jsx';
 import {CommunityPortal} from '../src/community-ui.jsx';
 import {loadDemo,storeDemo} from '../src/demo';
 beforeEach(()=>localStorage.clear());afterEach(cleanup);
-async function community(user){await user.click(screen.getByRole('button',{name:'Community hub'}));await screen.findByLabelText('Community name');}
+async function community(user){await user.click(screen.getByRole('button',{name:'Community hub'}));await user.click(await screen.findByRole('button',{name:'Community page'}));await screen.findByLabelText('Community name');}
 const stored=()=>JSON.parse(localStorage.getItem('rookrift-demo-v1'));
 test('community publication settings persist and explicit server selections control the public hub',async()=>{
   const user=userEvent.setup();const app=render(<App/>);await community(user);

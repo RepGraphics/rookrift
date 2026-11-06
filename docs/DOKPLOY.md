@@ -151,3 +151,7 @@ No migration or new environment variables are required. Rebuild the application 
 ## Release 0.15 store growth
 
 Back up the active PostgreSQL database, then rebuild/restart the application. Schema 19 adds promotions, product purchase limits and order price/payment-time snapshots. Existing orders and actions are retained. No new environment variables are required. A rollback to the previous release requires restoring its matching schema-18 database backup. See [store growth](STORE-GROWTH.md) for payment-provider scope, reservations and reporting semantics.
+
+## Release 0.16 navigation and package bundles
+
+Back up PostgreSQL before rebuilding the app. Schema 20 adds bundle-content snapshots; existing rows get empty lists. No new environment variables are required. Register updated Discord commands using `docker compose exec rookrift node server/register-commands.js`; it can read encrypted admin settings using the configured database/key. See [navigation and packages](NAVIGATION-AND-PACKAGES.md). A rollback requires the matching schema-19 database backup.

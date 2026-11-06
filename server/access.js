@@ -24,7 +24,7 @@ export async function authorizeRequest(db, req) {
     write = admin || access.role === 'moderator';
   if(/^\/community(?:\/|$)/.test(path)){
     if(access.server_ids!==null)deny();
-    if(path==='/community/store/connect'||/^\/community\/store\/products\/[^/]+\/actions$/.test(path)||/\/resolve$/.test(path))deny();
+    if(path==='/community/store/bundles'||path==='/community/store/connect'||/^\/community\/store\/products\/[^/]+\/actions$/.test(path)||/\/resolve$/.test(path))deny();
     if(/^\/community\/applications(?:\/[^/]+)?$/.test(path)){if(write&&['GET','PATCH'].includes(method))return;if(admin&&method==='DELETE')return;deny();}
     if(admin)return;
     deny();

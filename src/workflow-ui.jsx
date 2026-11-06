@@ -1,3 +1,4 @@
+import {useViewState} from './use-view-state';
 import {hostingCapabilities} from '../shared/hosting-providers';
 import React,{useEffect,useState} from 'react';
 import {Workflow,Plus,Play,Pause,History,Pencil,Trash2,ArrowUp,ArrowDown,KeyRound,Copy,CheckCircle2,Clock3,ShieldCheck} from 'lucide-react';
@@ -8,7 +9,7 @@ import {scheduleLabel,validTimeZone} from '../shared/scheduling';
 import './workflow.css';
 const date=time=>time?new Date(time).toLocaleString('en-GB',{dateStyle:'medium',timeStyle:'short'}):'Not yet run';
 export function WorkflowPage({data,request,mutate,busy,demo,Dialog,notify}){
-  const [view,setView]=useState(null),[tab,setTab]=useState('definitions'),[modal,setModal]=useState(null),[error,setError]=useState(''),[detailRun,setDetailRun]=useState(null);
+  const [view,setView]=useState(null),[tab,setTab]=useViewState('workflows','definitions'),[modal,setModal]=useState(null),[error,setError]=useState(''),[detailRun,setDetailRun]=useState(null);
   const manage=['owner','admin'].includes(data.access?.role||'owner');
   async function load(){try{setView(demo?demoWorkflowRequest(structuredClone(data),'/workflows'):await request('/workflows','GET'));setError('');}catch(error){setError(error.message);}}
   useEffect(()=>{let active=true;const refresh=async()=>{try{const next=demo?demoWorkflowRequest(structuredClone(data),'/workflows'):await request('/workflows','GET');if(active){setView(next);setError('');}}catch(error){if(active)setError(error.message);}};void refresh();const timer=demo?null:setInterval(refresh,5000);return()=>{active=false;clearInterval(timer);};},[data]);

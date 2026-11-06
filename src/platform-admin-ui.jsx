@@ -1,3 +1,4 @@
+import {useViewState} from './use-view-state';
 import {Avatar} from './avatar';
 import {AdminSettings} from './admin-settings-ui';
 import React,{useEffect,useState} from 'react';
@@ -43,7 +44,7 @@ export function PlatformAdminPage({request,notify,section='overview',onNavigate}
 }
 
 export function AdminApp(){
-  const [state,setState]=useState({loading:true,error:'',data:null}),[notice,setNotice]=useState(null),[section,setSection]=useState('overview');
+  const [state,setState]=useState({loading:true,error:'',data:null}),[notice,setNotice]=useState(null),[section,setSection]=useViewState('admin','overview');
   const load=()=>fetch('/api/platform/bootstrap').then(async response=>{const data=await response.json();if(!response.ok)throw new Error(data.error||'Unable to open platform administration.');return data;}).then(data=>setState({loading:false,error:'',data})).catch(error=>setState({loading:false,error:error.message,data:null}));
   useEffect(()=>{load();},[]);
   if(state.loading)return <main className="admin-loading">Loading platform administration...</main>;

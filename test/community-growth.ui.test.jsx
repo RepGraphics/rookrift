@@ -6,7 +6,7 @@ import {CommunityPortal} from '../src/community-ui.jsx';
 import {HostingConnectionForm} from '../src/hosting-ui.jsx';
 beforeEach(()=>{localStorage.clear();window.history.replaceState(null,'','/');});afterEach(cleanup);
 const stored=()=>JSON.parse(localStorage.getItem('rookrift-demo-v1'));
-async function hub(user){await user.click(screen.getByRole('button',{name:'Community hub'}));await screen.findByLabelText('Community name');}
+async function hub(user){await user.click(screen.getByRole('button',{name:'Community hub'}));await user.click(await screen.findByRole('button',{name:'Community page'}));await screen.findByLabelText('Community name');}
 
 test('both application sections can be disabled and disappear from the public menu',async()=>{
  const user=userEvent.setup(),app=render(<App/>);await hub(user);await user.click(screen.getByLabelText('Accept join requests'));await user.click(screen.getByLabelText('Accept staff applications'));await user.click(screen.getByRole('button',{name:'Save community page'}));
@@ -14,9 +14,9 @@ test('both application sections can be disabled and disappear from the public me
  const nav=screen.getByRole('navigation',{name:'Community sections'});expect(within(nav).queryByRole('button',{name:'Join Requests'})).toBeNull();expect(within(nav).queryByRole('button',{name:'Staff Applications'})).toBeNull();
 });
 test('site editor saves a private draft and publishes custom pages with escaped text',async()=>{
- const user=userEvent.setup();let app=render(<App/>);await hub(user);await user.click(screen.getByRole('button',{name:'Site editor'}));const text=await screen.findByLabelText('Section 1 text');fireEvent.change(text,{target:{value:'<script>draft()</script> Welcome to the new season.'}});await user.click(screen.getByRole('button',{name:'Brand & appearance'}));await user.selectOptions(screen.getByLabelText('Site colour theme'),'ocean');await user.click(screen.getByRole('button',{name:'Save draft'}));expect(stored().community.design.published_at).toBeNull();app.unmount();
+ const user=userEvent.setup();let app=render(<App/>);await hub(user);await user.click(screen.getByRole('button',{name:'Site editor'}));await user.click(await screen.findByRole('button',{name:'Pages & sections'}));const text=await screen.findByLabelText('Section 1 text');fireEvent.change(text,{target:{value:'<script>draft()</script> Welcome to the new season.'}});await user.click(screen.getByRole('button',{name:'Brand & appearance'}));await user.selectOptions(screen.getByLabelText('Site colour theme'),'ocean');await user.click(screen.getByRole('button',{name:'Save draft'}));expect(stored().community.design.published_at).toBeNull();app.unmount();
  let portal=render(<CommunityPortal slug="the-outpost" demo/>);await screen.findByRole('heading',{name:'The Outpost'});expect(screen.queryByText('<script>draft()</script> Welcome to the new season.')).toBeNull();portal.unmount();
- app=render(<App/>);await hub(user);await user.click(screen.getByRole('button',{name:'Site editor'}));await screen.findByLabelText('Section 1 text');await user.click(screen.getByRole('button',{name:'Publish design'}));expect(stored().community.design.published_at).toBeTruthy();app.unmount();
+ app=render(<App/>);await hub(user);await user.click(screen.getByRole('button',{name:'Site editor'}));await user.click(await screen.findByRole('button',{name:'Pages & sections'}));await screen.findByLabelText('Section 1 text');await user.click(screen.getByRole('button',{name:'Publish design'}));expect(stored().community.design.published_at).toBeTruthy();app.unmount();
  portal=render(<CommunityPortal slug="the-outpost" demo/>);await screen.findByRole('heading',{name:'The Outpost'});expect(screen.getByText('<script>draft()</script> Welcome to the new season.')).toBeTruthy();expect(document.querySelector('script')).toBeNull();expect(document.querySelector('.community-portal').dataset.communityTheme).toBe('ocean');
 });
 test('demo storefront supports catalog setup, a simulated purchase and a staff delivery record',async()=>{
