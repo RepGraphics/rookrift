@@ -11,6 +11,15 @@ export function demoAdminRequest(path,method='GET',body={}){
  else if(path==='/platform/email'){const {password,clear_password,...fields}=body;Object.assign(data.email,fields);data.email.password_configured=clear_password?false:Boolean(password)||data.email.password_configured;data.email.configured=Boolean(data.email.enabled&&data.email.host&&data.email.from);event('Email delivery settings updated');result={settings:data.email};}
  else if(path==='/platform/email/test')result={message:'Simulated test complete. No email was sent.'};
  else if(path==='/platform/email/retry')result={queued:0};
+ else if(path.endsWith('/password-reset')){
+  const target=data.users.find(u=>path==='/platform/users/'+u.id+'/password-reset');if(!target||target.platform_admin||target.suspended||!target.email)throw new Error('Choose an active non-root demo account with an email address.');
+  if(method==='GET')result={email_available:data.email.configured};
+  else{if(body.confirmation?.trim().toLowerCase()!==target.email.toLowerCase())throw new Error('Type the account email to confirm this reset.');data.recovery_requests??=[];if(data.recovery_requests.includes(body.request_id))throw new Error('This request was already processed. Start a new reset request.');
+   if(body.method==='email'){if(!data.email.configured)throw new Error('Configure Email delivery first.');event('Password reset email queued',target.name);result={ok:true,message:'Simulated reset email queued. No email was sent.',expires_at:Date.now()+3600000};}
+   else if(body.method==='generate'){const bytes=crypto.getRandomValues(new Uint8Array(18)),password=btoa(String.fromCharCode(...bytes)).replaceAll('+','-').replaceAll('/','_');target.active_sessions=0;event('Temporary password generated',target.name);result={ok:true,password,expires_at:Date.now()+86400000,message:'Simulated temporary password. It cannot sign in to a real account.'};}
+   else throw new Error('Choose an email or generated password reset.');data.recovery_requests.push(body.request_id);
+  }
+ }
  else{const workspace=path.match(/^\/platform\/workspaces\/([^/]+)(\/community)?$/),user=path.match(/^\/platform\/users\/([^/]+)\/(suspension|revoke-sessions|impersonate)$/);
   if(workspace){const target=data.workspaces.find(w=>w.id===workspace[1]);if(!target)throw new Error('Demo workspace not found.');if(workspace[2]){Object.assign(target.site,body,{join_questions:JSON.stringify(body.join_questions),staff_questions:JSON.stringify(body.staff_questions)});event('Community page updated',target.name);}else{Object.assign(target,body);event('Workspace settings updated',target.name);}result={ok:true};}
   else if(user){const target=data.users.find(u=>u.id===user[1]);if(!target||target.platform_admin)throw new Error('Choose a non-root demo account.');if(user[2]==='suspension'){target.suspended=body.suspended;if(body.suspended)target.active_sessions=0;}if(user[2]==='revoke-sessions')target.active_sessions=0;event(user[2]==='impersonate'?'Support session opened':user[2]==='suspension'?'Account suspension changed':'Account sessions revoked',target.name);result={ok:true};}

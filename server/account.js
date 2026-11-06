@@ -3,6 +3,7 @@ import { generateRegistrationOptions, verifyRegistrationResponse, generateAuthen
 import { hash, hashPassword, verifyPassword } from './crypto.js';
 import {createEmail} from './email.js';
 import {withAccountLock,assertAccountOpen} from './account-lock.js';
+import {clearPasswordState} from './password-state.js';
 import {presentUser,avatarImage} from './avatars.js';
 
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
@@ -53,11 +54,10 @@ export function createAccount(db, vault, env, billing, providedEmail) {
       return get(userId,{includeBilling:false});
     },
     async changePassword(userId, input, sessionHash) {
+      return withAccountLock(userId,async()=>{await assertAccountOpen(db,userId);
       const local = await db.prepare('SELECT password_hash FROM local_accounts WHERE user_id=?').get(userId); if (!local || !(await verifyPassword(input.current_password, local.password_hash))) fail('Your current password is incorrect.', 401);
       if (typeof input.password !== 'string' || input.password.length < 8 || input.password.length > 128) fail('Choose a password between 8 and 128 characters.');
-      await db.prepare('UPDATE local_accounts SET password_hash=? WHERE user_id=?').run(await hashPassword(input.password), userId);
-      await db.prepare('DELETE FROM sessions WHERE user_id=? AND token_hash<>?').run(userId, sessionHash);
-      return { ok: true };
+      const encoded=await hashPassword(input.password);return db.transaction(async()=>{await db.prepare('UPDATE local_accounts SET password_hash=? WHERE user_id=?').run(encoded,userId);await clearPasswordState(db,userId,{keepSession:sessionHash});return{ok:true};});});
     },
     async setupTotp(userId) {
       const secret = base32(randomBytes(20)); await db.prepare('INSERT INTO account_security(user_id,totp_secret,updated_at) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET totp_secret=excluded.totp_secret,updated_at=excluded.updated_at').run(userId, secret, Date.now());
@@ -106,7 +106,7 @@ export function createAccount(db, vault, env, billing, providedEmail) {
       if (typeof password !== 'string' || password.length < 8 || password.length > 128) fail('Choose a password between 8 and 128 characters.');
       if(!/^[a-f0-9]{64}$/.test(token||''))fail('This password reset link is invalid or expired.',400);
       const row=await db.prepare('SELECT user_id FROM password_reset_tokens WHERE token_hash=? AND expires_at>? AND used_at IS NULL').get(hash(token),Date.now());if(!row)fail('This password reset link is invalid or expired.',400);
-      return withAccountLock(row.user_id,async()=>{await assertAccountOpen(db,row.user_id);const encoded=await hashPassword(password);return db.transaction(async()=>{if(!await db.prepare('DELETE FROM password_reset_tokens WHERE token_hash=? AND expires_at>? RETURNING user_id').get(hash(token),Date.now()))fail('This password reset link is invalid or expired.',400);await db.prepare('UPDATE local_accounts SET password_hash=? WHERE user_id=?').run(encoded,row.user_id);for(const table of ['sessions','password_reset_tokens','login_challenges'])await db.prepare('DELETE FROM '+table+' WHERE user_id=?').run(row.user_id);await db.prepare("UPDATE email_outbox SET status='cancelled',payload=NULL,last_error='Password already updated.' WHERE user_id=? AND kind='password_reset' AND status IN ('pending','failed')").run(row.user_id);return{ok:true};});});
+      return withAccountLock(row.user_id,async()=>{await assertAccountOpen(db,row.user_id);const encoded=await hashPassword(password);return db.transaction(async()=>{if(!await db.prepare('DELETE FROM password_reset_tokens WHERE token_hash=? AND expires_at>? RETURNING user_id').get(hash(token),Date.now()))fail('This password reset link is invalid or expired.',400);await db.prepare('UPDATE local_accounts SET password_hash=? WHERE user_id=?').run(encoded,row.user_id);await clearPasswordState(db,row.user_id);return{ok:true};});});
     }
   };
 }

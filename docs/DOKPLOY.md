@@ -159,3 +159,7 @@ Back up PostgreSQL before rebuilding the app. Schema 20 adds bundle-content snap
 ## Release 0.17 admin experience and recipient identities
 
 Back up PostgreSQL, then rebuild the application. Schema 21 adds root-only platform activity with 90-day rolling retention. Standard ASA checkouts now validate EOS IDs and ASE checkouts validate Steam64 IDs; explicitly configured numeric/plugin command recipients and existing order snapshots are preserved. See [admin and game identities](ADMIN-AND-GAME-IDENTITIES.md). No new dependencies or environment variables are needed. Rollback requires the matching schema-20 database backup.
+
+## Release 0.18 focused admin and password recovery
+
+Back up PostgreSQL before rebuilding. Schema 22 adds temporary-password and replacement-challenge state plus idempotent reset references. Existing passwords are unchanged by migration. Admins can queue recovery emails or generate a one-time handover credential that requires replacement when used to sign in. SMTP must be enabled for email resets. See [admin password recovery](ADMIN-PASSWORD-RECOVERY.md). No new environment variables or dependencies are needed. Rollback requires the matching schema-21 backup.

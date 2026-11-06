@@ -1,3 +1,4 @@
+import {createAdminPasswords} from './admin-passwords.js';
 import {recordPlatformActivity} from './platform-activity.js';
 import {legalConfig} from '../shared/legal.js';
 import {createDiscordWorkspace} from './discord-workspace.js';
@@ -84,7 +85,7 @@ export function createApp({
   const banDirectory = createBanDirectory(db),
     team = createTeam(db),
     profiles = createPlayerProfiles(db),
-    platformAdmin = createPlatformAdmin(db, community, vault, env);
+    platformAdmin = createPlatformAdmin(db, community, vault, env),adminPasswords=createAdminPasswords(db,email);
   const app = express(),
     origin = new URL(env.APP_URL || 'http://localhost:3000').origin;
   const deletion=createAccountDeletion(db,{billing,service,account:accountService,store,env});app.locals.deletion=deletion;
@@ -293,11 +294,11 @@ export function createApp({
     const result=await passwordLogin.begin(input.email,input.password);
     if(result.requires_totp){res.cookie('rookrift_login_challenge',result.challenge,{...cookieOptions,path:'/auth/login',sameSite:'strict',maxAge:300000}).json({ok:true,requires_totp:true});return;}
     res.clearCookie('rookrift_login_challenge',{...cookieOptions,path:'/auth/login'});
-    await createSession(result.user_id, res);
-    res.json({ ok: true });
+    const final=await passwordLogin.finalize(result,id=>createSession(id,res));if(final.requires_password_change){res.cookie('rookrift_password_change',final.challenge,{...cookieOptions,path:'/auth/login',sameSite:'strict',maxAge:300000}).json({ok:true,requires_password_change:true});return;}res.json(final);
   });
-  app.post('/auth/login/totp',authLimiter,async(req,res)=>{const input=z.object({code:z.string().max(6)}).strict().parse(req.body),result=await passwordLogin.complete(req.cookies.rookrift_login_challenge,input.code);res.clearCookie('rookrift_login_challenge',{...cookieOptions,path:'/auth/login'});await createSession(result.user_id,res);res.json({ok:true});});
-  app.post('/auth/login/cancel',authLimiter,async(req,res)=>{await passwordLogin.cancel(req.cookies.rookrift_login_challenge);res.clearCookie('rookrift_login_challenge',{...cookieOptions,path:'/auth/login'}).json({ok:true});});
+  app.post('/auth/login/totp',authLimiter,async(req,res)=>{const input=z.object({code:z.string().max(6)}).strict().parse(req.body),result=await passwordLogin.complete(req.cookies.rookrift_login_challenge,input.code);res.clearCookie('rookrift_login_challenge',{...cookieOptions,path:'/auth/login'});const final=await passwordLogin.finalize(result,id=>createSession(id,res));if(final.requires_password_change){res.cookie('rookrift_password_change',final.challenge,{...cookieOptions,path:'/auth/login',sameSite:'strict',maxAge:300000}).json({ok:true,requires_password_change:true});return;}res.json(final);});
+  app.post('/auth/login/password',authLimiter,async(req,res)=>{const input=z.object({password:passwordSchema}).strict().parse(req.body);await passwordLogin.replaceTemporary(req.cookies.rookrift_password_change,input.password,id=>createSession(id,res));res.clearCookie('rookrift_password_change',{...cookieOptions,path:'/auth/login'}).json({ok:true});});
+  app.post('/auth/login/cancel',authLimiter,async(req,res)=>{await passwordLogin.cancel(req.cookies.rookrift_login_challenge,req.cookies.rookrift_password_change);res.clearCookie('rookrift_login_challenge',{...cookieOptions,path:'/auth/login'}).clearCookie('rookrift_password_change',{...cookieOptions,path:'/auth/login'}).json({ok:true});});
   app.post('/auth/password-reset/request', authLimiter, async (req, res) => { await accountService.requestReset(req.body?.email); res.json({ ok: true, message: 'If that email belongs to an account, a reset link has been sent.' }); });
   app.post('/auth/password-reset/confirm', authLimiter, async (req, res) => res.json(await accountService.resetPassword(req.body?.token, req.body?.password)));
   app.post('/auth/passkeys/options', authLimiter, async (req, res) => res.json(await accountService.authenticationOptions()));
@@ -657,6 +658,8 @@ export function createApp({
   app.patch('/api/platform/workspaces/:id', async (req,res)=>res.json(await platformAdmin.updateWorkspace(req.user,req.params.id,req.body)));
   app.put('/api/platform/workspaces/:id/community', async (req,res)=>res.json(await platformAdmin.updateCommunity(req.user,req.params.id,req.body)));
   app.patch('/api/platform/users/:id/suspension', async (req,res)=>res.json(await platformAdmin.suspend(req.user,req.params.id,req.body?.suspended)));
+  app.get('/api/platform/users/:id/password-reset',async(req,res)=>res.set('Cache-Control','no-store').json(await adminPasswords.options(req.user,req.params.id)));
+  app.post('/api/platform/users/:id/password-reset',rateLimit({windowMs:900000,limit:20,standardHeaders:'draft-8',legacyHeaders:false}),async(req,res)=>res.set('Cache-Control','no-store').json(await adminPasswords.reset(req.user,req.params.id,req.body)));
   app.post('/api/platform/users/:id/revoke-sessions', async (req,res)=>res.json(await platformAdmin.revokeSessions(req.user,req.params.id)));
   app.post('/api/platform/users/:id/impersonate', async (req,res)=>{
     const session=await platformAdmin.impersonate(req.user,req.params.id,issueSession);
