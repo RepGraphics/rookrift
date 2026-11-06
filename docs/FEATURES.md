@@ -1,6 +1,6 @@
 # Everyday operations
 
-The hosted preview demonstrates every workflow using local sample data. On a live deployment the same controls use the authenticated API, stored workspace settings, and real ARK RCON connections.
+The hosted preview demonstrates every workflow using local sample data. On a live deployment the same controls use the authenticated API, stored workspace settings, and supported game adapters.
 
 ## Organise and edit a fleet
 
@@ -68,3 +68,7 @@ Existing demo workspaces are upgraded locally with group names, snapshot data, a
 ## Community growth (0.9)
 
 The [community hub](COMMUNITY.md) now includes independent join/staff forms and a multi-page site editor with private drafts and publication. The [storefront](STOREFRONT.md) supports separate connected merchant accounts, one-time purchases, payment/refund verification and staff delivery records. [Hosting connectors](HOSTING-PROVIDERS.md) support Pterodactyl, Pelican and Nitrado according to each provider?s tested API capabilities.
+
+## Player activity in 0.22
+
+Players now has an Activity & sessions tab with filtered observed sessions, estimated online time, per-player rankings, a snapshot timeline and CSV exports. Each profile includes its permitted server session history. The page distinguishes player absence from connection loss, monitoring gaps, process restarts and plan pauses. Timings are polling estimates; native join/leave events and exact playtime remain separate future integrations. See [player activity](PLAYER-ACTIVITY.md).

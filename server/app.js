@@ -22,6 +22,7 @@ import { createTeam, staffAudit } from './team.js';
 import { authorizeRequest } from './access.js';
 import { buildDashboard } from './dashboard.js';
 import { createPlayerProfiles } from './player-profiles.js';
+import {createPlayerActivity} from './player-activity.js';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
@@ -85,7 +86,7 @@ export function createApp({
   store.setActionsValidator?.(delivery.validate);
   const banDirectory = createBanDirectory(db),
     team = createTeam(db),
-    profiles = createPlayerProfiles(db),
+    profiles = createPlayerProfiles(db),playerActivity=createPlayerActivity(db),
     platformAdmin = createPlatformAdmin(db, community, vault, env),adminPasswords=createAdminPasswords(db,email),platformSupport=createPlatformSupport(db);
   const app = express(),
     origin = new URL(env.APP_URL || 'http://localhost:3000').origin;
@@ -479,6 +480,8 @@ export function createApp({
   app.delete('/api/team/invitations/:id', async (req, res) => res.json(await team.revoke(req.workspace.id, req.params.id, req.user)));
   app.patch('/api/team/members/:id', async (req, res) => res.json(await team.update(req.workspace.id, req.params.id, req.body, req.user)));
   app.delete('/api/team/members/:id', async (req, res) => res.json(await team.remove(req.workspace.id, req.params.id, req.user)));
+  app.get('/api/player-activity',async(req,res)=>res.set('Cache-Control','no-store').json(await playerActivity.list(req.workspace.id,req.query,req.access.server_ids)));
+  app.get('/api/player-activity/export',async(req,res)=>res.set('Cache-Control','no-store').json(await playerActivity.export(req.workspace.id,req.query,req.access.server_ids)));
   app.get('/api/player-profiles', async (req, res) => res.set('Cache-Control', 'no-store').json(await profiles.list(req.workspace.id, req.query, req.access.server_ids)));
   app.get('/api/player-profiles/:id', async (req, res) => res.set('Cache-Control', 'no-store').json(await profiles.detail(req.workspace.id, req.params.id, req.access.server_ids)));
   app.post('/api/player-profiles/:id/notes', async (req, res) => res.status(201).json(await profiles.addNote(req.workspace.id, req.params.id, req.body, req.user, req.access.server_ids)));

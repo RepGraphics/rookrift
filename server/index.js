@@ -1,4 +1,5 @@
 import {openDatabase} from './db.js';
+import {recoverPlayerActivity} from './player-activity.js';
 import {createVault} from './crypto.js';
 import {createService} from './service.js';
 import {createBilling} from './billing.js';
@@ -37,6 +38,7 @@ async function start(){
   const settingEnv={discord_client_id:'DISCORD_CLIENT_ID',discord_client_secret:'DISCORD_CLIENT_SECRET',discord_bot_token:'DISCORD_BOT_TOKEN',stripe_connect_secret_key:'STRIPE_CONNECT_SECRET_KEY',stripe_connect_webhook_secret:'STRIPE_CONNECT_WEBHOOK_SECRET',stripe_secret_key:'STRIPE_SECRET_KEY',stripe_webhook_secret:'STRIPE_WEBHOOK_SECRET',stripe_tribe_monthly_price_id:'STRIPE_TRIBE_MONTHLY_PRICE_ID',stripe_cluster_monthly_price_id:'STRIPE_CLUSTER_MONTHLY_PRICE_ID',paypal_client_id:'PAYPAL_CLIENT_ID',paypal_client_secret:'PAYPAL_CLIENT_SECRET',paypal_webhook_id:'PAYPAL_WEBHOOK_ID',paypal_tribe_plan_id:'PAYPAL_TRIBE_PLAN_ID',paypal_cluster_plan_id:'PAYPAL_CLUSTER_PLAN_ID',platform_billing_provider:'PLATFORM_BILLING_PROVIDER',paypal_ipn_tribe_url:'PAYPAL_IPN_TRIBE_URL',paypal_ipn_cluster_url:'PAYPAL_IPN_CLUSTER_URL',tebex_tribe_url:'TEBEX_TRIBE_URL',tebex_cluster_url:'TEBEX_CLUSTER_URL'};
   for(const setting of platformSettings){const name=settingEnv[setting.key];if(name&&!process.env[name])process.env[name]=vault.decrypt(setting.value);}
   await db.acquireRuntimeLock(()=>{console.error('PostgreSQL runtime lease lost; stopping to prevent duplicate workers.');process.exit(1);});
+  await recoverPlayerActivity(db);
   await db.prepare('UPDATE users SET deleting_at=NULL WHERE deleting_at IS NOT NULL').run();
   cache=createMetricsCache();cache.start();service=createService(db,vault);const paypal=createPayPal();billing=createBilling(db,process.env,undefined,paypal);
   const app=createApp({db,vault,service,billing,paypal,cache,getBot:()=>bot});

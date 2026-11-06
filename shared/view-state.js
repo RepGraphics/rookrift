@@ -3,7 +3,7 @@ export const VIEW_VALUES={
  community:['hub','builder','store','linking','news','events','join','staff'],
  store:['catalog','categories','promotions','analytics','orders','settings'],
  operations:['health','incidents','announcements','maintenance','hosting','moderation'],
- players:['players','profiles','bans'],configuration:['templates','history'],workflows:['definitions','runs'],
+ players:['players','profiles','activity','bans'],configuration:['templates','history'],workflows:['definitions','runs'],
  account:['profile','security','appearance','billing','deletion'],admin:['overview','users','workspaces','activity','settings'],
  integration:['email','discord','subscriptions','store'],editor:['pages','appearance']
 };

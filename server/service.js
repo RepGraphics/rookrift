@@ -9,6 +9,7 @@ import { runRcon } from './games.js';
 import { commandFor } from './games.js';
 import { maintenanceState, renderAnnouncement, observeHealth, notify } from './operations-state.js';
 import { observePlayers } from './player-profiles.js';
+import {interruptPlayerSessions,prunePlayerActivity} from './player-activity.js';
 import { nextRun,validTimeZone } from '../shared/scheduling.js';
 import { assertWorkflowIdle } from './workflows.js';
 import {createMetadataDiscovery} from './server-metadata.js';
@@ -154,6 +155,7 @@ export function createService(db, vault, transport = runRcon,{metadata=createMet
           let detected=metadataChanged?{}:original.detected_metadata||{};
           if(updated.metadata_auto){if(metadataChanged){updated.map='';updated.max_players=null;}else{if(detected.map)updated.map=detected.map;if(detected.max_players)updated.max_players=detected.max_players;}}
           await db.prepare('UPDATE servers SET name=?,game=?,map=?,host=?,port=?,password=?,max_players=?,cluster=?,maintenance=?,notes=?,metadata_auto=?,query_port=?,detected_metadata=?,metadata_revision=metadata_revision+1 WHERE id=? AND workspace_id=?').run(updated.name, updated.game, updated.map, updated.host, updated.port, updated.password, updated.max_players, updated.cluster, updated.maintenance, updated.notes,updated.metadata_auto,updated.query_port,JSON.stringify(detected), id, workspaceId);
+          if(changed)await interruptPlayerSessions(db,original,'connection_changed');
           if (changed) await db.prepare("UPDATE servers SET status='unknown',players=0,latency=NULL,last_checked=NULL,player_list='[]',failed_checks=0,failed_since=NULL WHERE id=?").run(id);
           await audit(db, workspaceId, original.maintenance !== updated.maintenance ? updated.maintenance ? 'Maintenance enabled' : 'Maintenance ended' : 'Server settings updated', updated.name, 'info', id);
           return publicServer(await getServer(workspaceId, id, false));
@@ -319,6 +321,7 @@ export function createService(db, vault, transport = runRcon,{metadata=createMet
         }[action] || action, `${server.name} · ${actor}`, 'success', serverId);
         return result;
       } catch (error) {
+        if(!error.status||error.code==='PLAYER_LIST_FORMAT')await interruptPlayerSessions(db,server,error.code==='PLAYER_LIST_FORMAT'?'unreliable_snapshot':'connection_lost');
         if (!error.status) {
           await db.prepare("UPDATE servers SET status='offline',players=0,player_list='[]',latency=NULL,last_checked=? WHERE id=?").run(Date.now(), serverId);
           await db.prepare('UPDATE player_observations SET online=0 WHERE server_id=?').run(serverId);
@@ -375,6 +378,7 @@ export function createService(db, vault, transport = runRcon,{metadata=createMet
           }
           await observeHealth(db, ws, updated, notify);
         }
+        await prunePlayerActivity(db,ws);
         const cutoff = Date.now() - effectivePlan(ws).historyDays * 86400000;
         await db.prepare('DELETE FROM activity WHERE workspace_id=? AND created_at<?').run(ws.id, cutoff);
         await db.prepare('DELETE FROM metrics WHERE server_id IN (SELECT id FROM servers WHERE workspace_id=?) AND created_at<?').run(ws.id, cutoff);

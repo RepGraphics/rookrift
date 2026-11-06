@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { tryIdentity, identityFromKey } from '../shared/ban-identity.js';
 import { effectivePlan } from './plans.js';
 import { staffAudit } from './team.js';
+import {observePlayerSessions} from './player-activity.js';
 const fail = (message, status = 404) => Object.assign(new Error(message), {
   status
 });
@@ -29,11 +30,19 @@ export async function observePlayers(db, server, lines, now = Date.now()) {
     });
   }
   await db.transaction(async () => {
+    // Match workspace-management lock order, including account/workspace deletion.
+    if(!await db.prepare('SELECT id FROM workspaces WHERE id=? AND closed_at IS NULL FOR KEY SHARE').get(server.workspace_id))return;
+    const current=await db.prepare('SELECT id FROM servers WHERE id=? AND workspace_id=? FOR UPDATE').get(server.id,server.workspace_id);
+    if(!current)return;
+    // Read presence only after acquiring the lock: a join in the locking query could see a pre-wait snapshot.
+    const check=await db.prepare('SELECT checked_at,connected FROM player_presence_checks WHERE server_id=?').get(server.id);
+    if(check&&now<=check.checked_at)return;
     await db.prepare('UPDATE player_observations SET online=0 WHERE server_id=?').run(server.id);
-    if (!rows.length) return;
+    if (!rows.length) {await observePlayerSessions(db,server,now,check);return;}
     const json = JSON.stringify(rows);
     await db.prepare('INSERT INTO player_profiles SELECT x.id,?,x.key,x.kind,?,? FROM jsonb_to_recordset(?::jsonb) AS x(id text,key text,kind text,name text) ON CONFLICT(workspace_id,identity_key,game) DO NOTHING').run(server.workspace_id, server.game, now, json);
     await db.prepare('INSERT INTO player_observations SELECT p.id,?,x.name,?,?,?,1,1 FROM jsonb_to_recordset(?::jsonb) AS x(id text,key text,kind text,name text) JOIN player_profiles p ON p.identity_key=x.key AND p.workspace_id=? AND p.game=? ON CONFLICT(profile_id,server_id) DO UPDATE SET display_name=excluded.display_name,last_seen=GREATEST(player_observations.last_seen,excluded.last_seen),sightings=player_observations.sightings+CASE WHEN player_observations.last_checked=excluded.last_checked THEN 0 ELSE 1 END,last_checked=excluded.last_checked,online=1').run(server.id, now, now, now, json, server.workspace_id, server.game);
+    await observePlayerSessions(db,server,now,check);
   });
 }
 export function createPlayerProfiles(db) {

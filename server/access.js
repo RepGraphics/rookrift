@@ -55,7 +55,7 @@ export async function authorizeRequest(db, req) {
   workflowMatch=path.match(/^\/workflow-runs\/([^/]+)$/);
   if(workflowMatch&&method==='GET'){await server((await record('workflow_runs',workflowMatch[1])).server_id);return;}
   if (method === 'POST' && ['/logout', '/workspaces/switch', '/team/invitations/preview', '/team/invitations/accept', '/ban-directory/search'].includes(path)) return;
-  if (method === 'GET' && ['/bootstrap', '/workspaces', '/ban-directory/bans', '/player-profiles'].includes(path)) return;
+  if (method === 'GET' && ['/bootstrap', '/workspaces', '/ban-directory/bans', '/player-profiles', '/player-activity', '/player-activity/export'].includes(path)) return;
   if (/^\/player-profiles\/[^/]+(?:\/notes(?:\/[^/]+)?)?$/.test(path)) {
     if (method === 'GET' || write) return;
     deny();
