@@ -24,3 +24,5 @@ Email test/retry actions, the end of a support session, direct database changes 
 The hosted browser demo includes `/admin`. It uses separate local sample data and never sends emails, changes external accounts or configures real payment services. Demo credential input is discarded; only configured flags are stored. The live build uses authenticated backend endpoints.
 
 Back up PostgreSQL before upgrading. Schema **21** adds the platform activity table and indexes. There are no new dependencies or environment variables. Rebuild the app with the existing Compose/Dokploy configuration. Restoring older software requires its matching schema-20 database backup. The Privacy Policy now describes the platform activity retention window.
+
+The live and demo build scripts always use the production React runtime, including when a local development environment file selects `NODE_ENV=development` for the backend.
