@@ -81,16 +81,12 @@ test('tenant isolation applies to controls, schedules, and returned secrets', as
   }), /not found/);
   await db.close();
 });
-test('DayZ and invalid game inputs are refused rather than using the ARK protocol', async () => {
+test('DayZ is available with capability checks while invalid connections are refused', async () => {
   const {
     db,
     service
   } = await fixture();
-  assert.equal(GAMES.dayz.available, false);
-  await assert.rejects(async () => await service.addServer('w1', {
-    ...input,
-    game: 'dayz'
-  }));
+  assert.equal(GAMES.dayz.available,true);const dayz=await service.addServer('w1',{...input,game:'dayz'});await assert.rejects(service.action('w1',dayz.id,'save'),e=>e.status===400);await assert.rejects(service.addServer('w1',{...input,game:'unknown'}));
   await assert.rejects(async () => await service.addServer('w1', {
     ...input,
     port: 0

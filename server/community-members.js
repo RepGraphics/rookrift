@@ -1,12 +1,12 @@
 import {randomBytes,randomUUID} from 'node:crypto';
 import {z} from 'zod';
-import {deliveryIdentifier} from '../shared/store-delivery.js';
+import {deliveryIdentifier,gameIdentifierKind} from '../shared/store-delivery.js';
 import {chatLinkRecord,chatLinkPlayer} from '../shared/ark-chat-link.js';
 import {hash} from './crypto.js';
 import {effectivePlan} from './plans.js';
 
 const fail=(message,status=400)=>{throw Object.assign(new Error(message),{status});};
-const accountInput=z.object({game:z.enum(['asa','ase','dayz']),identifier:z.string().trim().min(3).max(100),label:z.string().trim().max(80).default('')}).strict();
+const accountInput=z.object({game:z.enum(['asa','ase','minecraft','dayz']),identifier:z.string().trim().min(3).max(100),label:z.string().trim().max(80).default('')}).strict();
 const linkEvent=z.union([z.object({server_id:z.string().uuid(),message:z.string().min(1).max(4096)}).strict(),z.object({server_id:z.string().uuid(),code:z.string().regex(/^RR-[A-F0-9]{10,32}$/i),identifier:z.string().min(3).max(100)}).strict()]);
 
 export function createCommunityMembers(db,{service}={}){
@@ -58,7 +58,7 @@ export function createCommunityMembers(db,{service}={}){
       return {display_name:value.display_name};
     },
     async add(slug,user,input){
-      if(!user)fail('Sign in to link a game account.',401);const value=accountInput.parse(input),site=await community(slug),identifier=deliveryIdentifier(value.identifier,'game');
+      if(!user)fail('Sign in to link a game account.',401);const value=accountInput.parse(input),site=await community(slug),identifier=deliveryIdentifier(value.identifier,['minecraft','dayz'].includes(value.game)?gameIdentifierKind(value.game):'game');
       return db.withWorkspaceLock(site.workspace_id,async()=>{await ensure(site.workspace_id,user);if((await db.prepare('SELECT count(*) AS n FROM community_game_accounts WHERE workspace_id=? AND user_id=?').get(site.workspace_id,user.id)).n>=20)fail('You can save up to 20 game accounts.',409);try{await db.prepare('INSERT INTO community_game_accounts(id,workspace_id,user_id,game,identifier,label,created_at) VALUES(?,?,?,?,?,?,?)').run(randomUUID(),site.workspace_id,user.id,value.game,identifier,value.label,Date.now());}catch(e){if(e.code==='23505')fail('That game account is already saved.',409);throw e;}return list(site,user);});
     },
     async createLinkCode(slug,user,game,serverId){

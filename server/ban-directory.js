@@ -5,7 +5,7 @@ import { audit } from './db.js';
 export const banLookupSchema = z.object({
   identifier: z.string().trim().min(3).max(140),
   identity_kind: z.enum(ID_KINDS).default('auto'),
-  game: z.enum(['all', 'asa', 'ase']).default('all'),
+  game: z.enum(['all','asa','ase','minecraft','dayz']).default('all'),
   include_withdrawn: z.boolean().default(false),
   page: z.coerce.number().int().min(1).max(10000).default(1)
 }).strict();
@@ -89,14 +89,14 @@ export function createBanDirectory(db) {
     async ownBans(workspaceId, input = {}, serverIds = null) {
       const value = z.object({
         status: z.enum(['active', 'withdrawn', 'all']).default('active'),
-        game: z.enum(['all', 'asa', 'ase']).default('all'),
+        game: z.enum(['all','asa','ase','minecraft','dayz']).default('all'),
         page: z.coerce.number().int().min(1).max(10000).default(1)
       }).strict().parse(input);
       return await privateQuery(workspaceId, null, value.game, value.status, value.page, serverIds);
     },
     async lookup(workspaceId, input, serverIds = null) {
       const value = banLookupSchema.parse(input),
-        identity = normalizeIdentity(value.identifier, value.identity_kind);
+        identity = normalizeIdentity(value.identifier,value.identity_kind==='auto'&&['minecraft','dayz'].includes(value.game)?value.game==='dayz'?'battleye':'minecraft':value.identity_kind);
       const status = value.include_withdrawn ? 'all' : 'active';
       const own = await privateQuery(workspaceId, identity.key, value.game, status, value.page, serverIds);
       const cte = `WITH grouped AS (SELECT w.id AS source_id,w.ban_public_name AS community,${clusterSql('s')} AS cluster_key,${clusterLabelSql('s', true)} AS cluster,s.game,MAX(r.active) AS active,COUNT(DISTINCT s.id) AS server_count,COUNT(DISTINCT CASE WHEN r.active=1 THEN s.id END) AS active_servers,MIN(r.first_reported_at) AS first_reported_at,MAX(r.last_updated_at) AS last_updated_at,MAX(r.withdrawn_at) AS withdrawn_at FROM ban_directory_reports r JOIN workspaces w ON w.id=r.workspace_id JOIN servers s ON s.id=r.server_id WHERE w.ban_sharing_enabled=1 AND w.id<>? AND r.identity_key=? AND (?='all' OR s.game=?) GROUP BY w.id,cluster_key,${clusterLabelSql('s', true)},s.game),filtered AS (SELECT * FROM grouped WHERE ?=1 OR active=1) `;

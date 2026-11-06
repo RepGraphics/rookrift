@@ -1,6 +1,6 @@
 # Rookrift identity
 
-**Name:** Rookrift. A rook suggests a watchful keeper; a rift hints at the survival worlds your communities inhabit. The name stays independent of ARK so future DayZ support belongs naturally. This is a working product name, not a claim of registration or exclusive trademark rights.
+**Name:** Rookrift. A rook suggests a watchful keeper; a rift hints at the worlds your communities inhabit. The name spans ARK, Minecraft Java and DayZ; game-specific features are labelled by their actual capabilities. This is a working product name, not a claim of registration or exclusive trademark rights.
 
 **Tagline:** Your servers. Under control.
 

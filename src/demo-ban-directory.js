@@ -25,7 +25,7 @@ export function demoOwnBans(data,{status='active',game='all',page=1,key=null}={}
   return paginate(items,page);
 }
 export function demoBanLookup(data,input){
-  const identity=normalizeIdentity(input.identifier,input.identity_kind),game=input.game||'all',page=input.page||1;
+  const identity=normalizeIdentity(input.identifier,(!input.identity_kind||input.identity_kind==='auto')&&(input.game==='minecraft'||input.game==='dayz')?(input.game==='minecraft'?'minecraft':'battleye'):input.identity_kind),game=input.game||'all',page=input.page||1;
   const community=reports.filter(row=>row.key===identity.key&&(game==='all'||row.game===game)&&(input.include_withdrawn||row.active)).map(({key,...row})=>row);
   return {identity:{kind:identity.kind,display:identity.display},game,own:demoOwnBans(data,{key:identity.key,status:input.include_withdrawn?'all':'active',game,page}),community:paginate(community,page),coverage:{participating_communities:2,source:'Fictional demo communities',verified_game_state:false},checked_at:Date.now()};
 }

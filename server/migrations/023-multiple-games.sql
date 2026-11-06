@@ -1,0 +1,10 @@
+ALTER TABLE servers DROP CONSTRAINT servers_game_check;
+ALTER TABLE servers ADD CONSTRAINT servers_game_check CHECK(game IN ('asa','ase','minecraft','dayz'));
+ALTER TABLE workspaces DROP CONSTRAINT workspaces_game_focus_check;
+ALTER TABLE workspaces ADD CONSTRAINT workspaces_game_focus_check CHECK(game_focus IN ('mixed','asa','ase','minecraft','dayz'));
+ALTER TABLE store_products DROP CONSTRAINT store_products_game_check;
+ALTER TABLE store_products ADD CONSTRAINT store_products_game_check CHECK(game IN ('asa','ase','minecraft','dayz'));
+ALTER TABLE community_applications DROP CONSTRAINT community_applications_game_check;
+ALTER TABLE community_applications ADD CONSTRAINT community_applications_game_check CHECK(game IN ('asa','ase','minecraft','dayz'));
+ALTER TABLE community_game_accounts DROP CONSTRAINT community_game_accounts_game_check;
+ALTER TABLE community_game_accounts ADD CONSTRAINT community_game_accounts_game_check CHECK(game IN ('asa','ase','minecraft','dayz'));

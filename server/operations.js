@@ -214,7 +214,7 @@ export function createOperations(db, vault, service, hosting = createHostingAdap
       return await db.prepare('SELECT * FROM schedule_runs WHERE workspace_id=? AND schedule_id=? AND finished_at>=? ORDER BY finished_at DESC LIMIT 50').all(workspace, id, Date.now() - effectivePlan(await ws(workspace)).historyDays * 86400000);
     },
     async moderation(workspace) {
-      return await db.prepare('SELECT m.*,s.name AS server_name FROM moderation m JOIN servers s ON s.id=m.server_id WHERE m.workspace_id=? ORDER BY m.active DESC,m.created_at DESC LIMIT 200').all(workspace);
+      return await db.prepare('SELECT m.*,s.name AS server_name,s.game FROM moderation m JOIN servers s ON s.id=m.server_id WHERE m.workspace_id=? ORDER BY m.active DESC,m.created_at DESC LIMIT 200').all(workspace);
     },
     async moderate(workspace, input, actor) {
       const value = z.object({
@@ -224,7 +224,7 @@ export function createOperations(db, vault, service, hosting = createHostingAdap
         action: z.enum(['kick', 'ban', 'unban']),
         reason: z.string().trim().min(3).max(300)
       }).strict().parse(input);
-      const identity = normalizeIdentity(value.identifier, value.identity_kind);
+      const targetGame=(await service.getServer(workspace,value.server_id)).game;if(['minecraft','dayz'].includes(targetGame)&&!['auto',targetGame==='dayz'?'battleye':'minecraft'].includes(value.identity_kind))throw Object.assign(new Error('Use the native account identifier for this game when moderating.'),{status:400});const identity=normalizeIdentity(value.identifier,value.identity_kind==='auto'&&['minecraft','dayz'].includes(targetGame)?targetGame==='dayz'?'battleye':'minecraft':value.identity_kind);
       const key = `${value.server_id}:${identity.key}`;
       if (moderationBusy.has(key)) throw Object.assign(new Error('A moderation command is already running for this player.'), {
         status: 409

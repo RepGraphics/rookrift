@@ -19,14 +19,19 @@ export const GAME_IDENTIFIER_GUIDES = {
     ],
     note: 'A Steam64 ID identifies your Steam account. Numeric PlayerID commands require a separate character ID; Steam ID delivery needs a compatible command or plugin.'
   },
+  minecraft: {
+    name:'Minecraft Java',summary:'Use your exact Java username for vanilla command delivery. UUID delivery requires a compatible plugin.',
+    steps:['Copy the Java username shown in your Minecraft profile or the server player list.','Use 3-16 letters, numbers or underscores. Do not enter an Xbox gamertag.','If the package specifically requests a UUID, ask staff to confirm the UUID and the command/plugin they use.'],
+    note:'This adapter supports Minecraft Java RCON, not Bedrock. A saved username is self-reported and does not prove account ownership.'
+  },
   dayz: {
     name: 'DayZ',
-    summary: 'Use the player identifier shown by the server admin tools, not your character name.',
+    summary: 'Use the 32-character BattlEye GUID reported by this server, not your character name or Steam64 ID.',
     steps: [
       'Join the server and ask an owner or admin to check your player in the server console, BattlEye logs, or the community admin tool.',
-      'Copy the exact Steam64 ID or platform identifier shown for your player.',
+      'Copy the exact BattlEye GUID shown for your player. This is distinct from Steam64 and the DayZ character UID.',
       'If the community uses a plugin account ID, ask staff which identifier format their delivery system expects.'
     ],
-    note: 'DayZ identifier formats vary by server tooling. Staff should confirm the exact value before you submit it.'
+    note: 'Native BattlEye does not grant inventory items. Community staff or a compatible mod must arrange item delivery. Ask staff to confirm the required identity.'
   }
 };

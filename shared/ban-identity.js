@@ -1,4 +1,4 @@
-export const ID_KINDS=['auto','eos','uuid','steam','game'];
+export const ID_KINDS=['auto','eos','uuid','steam','minecraft','battleye','game'];
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const hex32=/^[0-9a-f]{32}$/i;
 export function normalizeIdentity(input,requested='auto') {
@@ -13,11 +13,13 @@ export function normalizeIdentity(input,requested='auto') {
   } else {
     if(!/^[A-Za-z0-9_-]{3,128}$/.test(raw))throw Object.assign(new Error('Use the exact server-reported ID, without spaces, wildcards, or command characters.'),{status:400});
     if(kind==='steam'&&!/^\d{17}$/.test(raw))throw Object.assign(new Error('Enter a 17-digit Steam64 ID.'),{status:400});
+    if(kind==='minecraft'&&!/^[A-Za-z0-9_]{3,16}$/.test(raw))throw Object.assign(new Error('Enter a Minecraft Java username.'),{status:400});
+    if(kind==='battleye'&&!hex32.test(raw))throw Object.assign(new Error('Enter a 32-character BattlEye GUID.'),{status:400});
     // Common hexadecimal EOS tokens are normalized; other opaque tokens retain case.
-    value=kind==='eos'&&hex32.test(raw)?raw.toLowerCase():raw;display=value;
+    value=kind==='minecraft'||kind==='battleye'||kind==='eos'&&hex32.test(raw)?raw.toLowerCase():raw;display=value;
   }
   return {kind,value,display,key:`${kind}:${value}`};
 }
 export function identityFromKey(key) {const colon=key.indexOf(':');return normalizeIdentity(key.slice(colon+1),key.slice(0,colon));}
 export function tryIdentity(raw,kind='auto'){try{return normalizeIdentity(raw,kind);}catch{return null;}}
-export const identityLabel=kind=>({eos:'EOSID',uuid:'UUID',steam:'Steam64',game:'Game ID',auto:'Auto-detect'})[kind]||'Game ID';
+export const identityLabel=kind=>({eos:'EOSID',uuid:'UUID',steam:'Steam64',minecraft:'Minecraft username',battleye:'BattlEye GUID',game:'Game ID',auto:'Auto-detect'})[kind]||'Game ID';

@@ -1,3 +1,5 @@
+import {onlineRecipient} from '../shared/online-recipient.js';
+import {assertGameAction} from '../shared/games.js';
 import {assertHostingCapability} from '../shared/hosting-providers.js';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
@@ -11,7 +13,7 @@ import { nextRun,validTimeZone } from '../shared/scheduling.js';
 import { assertWorkflowIdle } from './workflows.js';
 const serverFields = z.object({
   name: z.string().trim().min(2).max(60),
-  game: z.enum(['asa', 'ase']),
+  game: z.enum(['asa', 'ase','minecraft','dayz']),
   map: z.string().trim().min(1).max(60),
   host: z.string().trim().min(1).max(253).regex(/^[a-zA-Z0-9.:-]+$/, 'Enter a hostname or IP address without a URL or port.'),
   port: z.coerce.number().int().min(1).max(65535),
@@ -84,7 +86,7 @@ export function createService(db, vault, transport = runRcon) {
     async addServer(workspaceId, input) {
       return await db.withWorkspaceLock(workspaceId, async () => {
         const data = serverSchema.parse(input);
-        const focus=(await workspace(workspaceId)).game_focus;if(focus==='dayz'||(['asa','ase'].includes(focus)&&focus!==data.game))throw Object.assign(new Error('Choose a server matching this workspace game focus. DayZ connections are not available yet.'),{status:400});
+        const focus=(await workspace(workspaceId)).game_focus;if(focus&&focus!=='mixed'&&focus!==data.game)throw Object.assign(new Error('Choose a server matching this workspace game focus.'),{status:400});
         // Serialize quota checks and inserts against this workspace's PostgreSQL row.
         assertCapacity(await workspace(workspaceId), (await listServers(db, workspaceId)).length);
         const id = randomUUID();
@@ -95,7 +97,7 @@ export function createService(db, vault, transport = runRcon) {
     },
     async updateServer(workspaceId, id, input) {
       const data = serverUpdateSchema.parse(input);
-      const focus=(await workspace(workspaceId)).game_focus;if(data.game&&(['asa','ase'].includes(focus)&&data.game!==focus||focus==='dayz'))throw Object.assign(new Error('Choose a game matching this workspace focus.'),{status:400});
+      const focus=(await workspace(workspaceId)).game_focus;if(data.game&&(focus&&focus!=='mixed'&&data.game!==focus))throw Object.assign(new Error('Choose a game matching this workspace focus.'),{status:400});
       await getServer(workspaceId, id, false);
       if (busy.has(id)) throw Object.assign(new Error('Wait for the current server command to finish before editing its connection.'), {
         status: 409
@@ -128,7 +130,7 @@ export function createService(db, vault, transport = runRcon) {
       return await db.withWorkspaceLock(workspaceId, async () => {
         const data = scheduleSchema.parse(input),
           ws = await workspace(workspaceId);
-        await getServer(workspaceId, data.server_id);
+        const targetServer=await getServer(workspaceId,data.server_id);if(data.action!=='backup')assertGameAction(targetServer.game,data.action);
         assertCapacity(ws, (await db.prepare('SELECT count(*) AS n FROM schedules WHERE workspace_id=?').get(workspaceId)).n, 'schedules');
         const id = randomUUID();
         if(data.action==='backup'){const connection=await db.prepare('SELECT provider FROM hosting_connections WHERE server_id=? AND workspace_id=?').get(data.server_id,workspaceId);if(!connection)throw Object.assign(new Error('Connect a hosting provider before scheduling backups.'),{status:400});assertHostingCapability(connection.provider,'backups');}
@@ -152,7 +154,7 @@ export function createService(db, vault, transport = runRcon) {
           } else {
             await getSchedule(workspaceId, id);
             const data = scheduleSchema.parse(input);
-            await getServer(workspaceId, data.server_id);
+            const targetServer=await getServer(workspaceId,data.server_id);if(data.action!=='backup')assertGameAction(targetServer.game,data.action);
             if(data.action==='backup'){const connection=await db.prepare('SELECT provider FROM hosting_connections WHERE server_id=? AND workspace_id=?').get(data.server_id,workspaceId);if(!connection)throw Object.assign(new Error('Connect a hosting provider before scheduling backups.'),{status:400});assertHostingCapability(connection.provider,'backups');}
             await db.prepare('UPDATE schedules SET server_id=?,name=?,action=?,message=?,interval_minutes=?,next_run=?,schedule_type=?,days=?,start_time=?,time_zone=? WHERE id=?').run(data.server_id, data.name, data.action, data.message, data.interval_minutes, nextRun(data),data.schedule_type,JSON.stringify(data.days),data.start_time,data.time_zone,id);
           }
@@ -225,6 +227,7 @@ export function createService(db, vault, transport = runRcon) {
       commandFor(data.action, data.message);
       // Validate the entire selection before executing the first command.
       const selected = await Promise.all(data.server_ids.map(async id => await getServer(workspaceId, id)));
+      for(const server of selected)commandFor(data.action,data.message,server.game);
       const results = [];
       const run = async server => {
         try {
@@ -249,13 +252,13 @@ export function createService(db, vault, transport = runRcon) {
         results
       };
     },
-    async purchaseCommand(workspaceId,serverId,command,beforeSend){
+    async purchaseCommand(workspaceId,serverId,command,beforeSend,delivery={}){
       commandFor('purchase',command);if(busy.has(serverId))throw Object.assign(new Error('Another server command is running.'),{status:409,code:'SERVER_BUSY'});busy.add(serverId);
-      try{const server=await getServer(workspaceId,serverId);await assertWorkflowIdle(db,serverId);if((await maintenanceState(db,server)).in_maintenance||server.status!=='online'||!server.last_checked||Date.now()-server.last_checked>180000)throw Object.assign(new Error('Waiting for the server to be online and outside maintenance.'),{status:409,code:'TARGET_NOT_READY'});await beforeSend(server);return await transport(server,vault,'purchase',command);}finally{busy.delete(serverId);}
+      try{const server=await getServer(workspaceId,serverId);commandFor('purchase',command,server.game);await assertWorkflowIdle(db,serverId);if((await maintenanceState(db,server)).in_maintenance||server.status!=='online'||!server.last_checked||Date.now()-server.last_checked>180000)throw Object.assign(new Error('Waiting for the server to be online and outside maintenance.'),{status:409,code:'TARGET_NOT_READY'});if(delivery.requireOnline){let live;try{live=await transport(server,vault,'players','');}catch(error){if(error.code==='PLAYER_LIST_FORMAT')throw error;throw Object.assign(new Error('Waiting for a successful recipient presence check.'),{status:409,code:'TARGET_NOT_READY'});}if(!onlineRecipient(server.game,delivery.identityKind,delivery.identifier,live.players))throw Object.assign(new Error('Waiting for the recipient to be online.'),{status:409,code:'TARGET_NOT_READY'});}await beforeSend(server);return await transport(server,vault,'purchase',command);}finally{busy.delete(serverId);}
     },
     async action(workspaceId, serverId, action, message, actor = 'Dashboard') {
       const server = await getServer(workspaceId, serverId);
-      commandFor(action, message);
+      commandFor(action, message,server.game);
       if (busy.has(serverId)) throw Object.assign(new Error('Another command is running on this server. Try again shortly.'), {
         status: 409,code:'SERVER_BUSY'
       });

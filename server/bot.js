@@ -1,10 +1,11 @@
+import {supportsAction} from '../shared/games.js';
 import {createCommunity} from './community.js';
 import {handleStoreInteraction} from './store-discord.js';
 import { Client, GatewayIntentBits, PermissionFlagsBits, EmbedBuilder, SlashCommandBuilder, MessageFlags } from 'discord.js';
 import { listServers } from './db.js';
 import { effectivePlan } from './plans.js';
 export function commandDefinitions() {
-  const builder = new SlashCommandBuilder().setName('rookrift').setDescription('Manage your survival servers').setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild).setContexts(0);
+  const builder = new SlashCommandBuilder().setName('rookrift').setDescription('Manage your game servers').setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild).setContexts(0);
   builder.addSubcommand(c => c.setName('servers').setDescription('List your connected game servers'));
   builder.addSubcommand(c=>c.setName('community').setDescription('Open your published community hub'));
   builder.addSubcommand(c=>c.setName('applications').setDescription('Show the pending community application count'));
@@ -13,7 +14,7 @@ export function commandDefinitions() {
   for (const action of ['status', 'players', 'save', 'broadcast']) {
     builder.addSubcommand(c => {
       c.setName(action).setDescription({
-        status: 'Check an ARK server connection',
+        status: 'Check a game server connection',
         players: 'List connected players',
         save: 'Save the world now',
         broadcast: 'Send a server announcement'
@@ -45,7 +46,7 @@ export async function startBot(db, service, env = process.env,workflows,store) {
       if (interaction.isAutocomplete()) {
         const query = interaction.options.getFocused().toLowerCase();
         if(interaction.options.getFocused(true).name==='workflow'){const choices=ws&&workflows?(await workflows.view(ws.id)).definitions.filter(flow=>!flow.paused&&flow.enabled&&flow.name.toLowerCase().includes(query)).slice(0,25).map(flow=>({name:flow.name,value:flow.id})):[];await interaction.respond(choices);return;}
-        const choices = ws ? (await listServers(db, ws.id)).slice(0, effectivePlan(ws).servers).filter(s => s.name.toLowerCase().includes(query)).slice(0, 25).map(s => ({
+        const choices = ws ? (await listServers(db, ws.id)).slice(0, effectivePlan(ws).servers).filter(s=>s.name.toLowerCase().includes(query)&&(!['save','status','players','broadcast'].includes(interaction.options.getSubcommand())||supportsAction(s.game,interaction.options.getSubcommand()))).slice(0, 25).map(s => ({
           name: s.name,
           value: s.id
         })) : [];

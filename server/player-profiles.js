@@ -18,7 +18,7 @@ export async function observePlayers(db, server, lines, now = Date.now()) {
     if (typeof line !== 'string') continue;
     const comma = line.lastIndexOf(',');
     if (comma < 0) continue;
-    const identity = tryIdentity(line.slice(comma + 1).trim());
+    const identity = tryIdentity(line.slice(comma + 1).trim(),server.game==='dayz'?'battleye':server.game==='minecraft'?'minecraft':'auto');
     if (!identity || seen.has(identity.key)) continue;
     seen.add(identity.key);
     rows.push({
@@ -71,7 +71,7 @@ export function createPlayerProfiles(db) {
     async list(workspace, input = {}, ids = null) {
       const value = z.object({
           search: z.string().trim().max(140).default(''),
-          game: z.enum(['all', 'asa', 'ase']).default('all'),
+          game: z.enum(['all','asa','ase','minecraft','dayz']).default('all'),
           state: z.enum(['all', 'online', 'offline']).default('all'),
           page: z.coerce.number().int().min(1).max(10000).default(1)
         }).strict().parse(input),

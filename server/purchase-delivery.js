@@ -1,17 +1,18 @@
 import {createHash} from 'node:crypto';
 import {z} from 'zod';
 import {PermissionFlagsBits} from 'discord.js';
-import {renderPurchaseCommand,deliveryKindsForGame,gameIdentifierLabel} from '../shared/store-delivery.js';
+import {renderPurchaseCommand,deliveryKindsForGame,gameIdentifierLabel,gameIdentifierKind} from '../shared/store-delivery.js';
 import {parseActions,refreshDeliveryStatus} from './store-delivery-state.js';
 import {audit} from './db.js';
+import {commandFor} from './games.js';
 
 const fail=(message,status=400)=>{throw Object.assign(new Error(message),{status});};
 const fingerprint=s=>createHash('sha256').update([s.game,s.host,s.port,s.password].join('\0')).digest('hex');
 const actionSchema=z.discriminatedUnion('type',[
- z.object({type:z.literal('rcon'),server_id:z.string().uuid(),command_template:z.string().trim().min(1).max(600),identity_kind:z.enum(['numeric','eos','steam','uuid','game']),target_fingerprint:z.string().optional(),label:z.string().optional()}).strict(),
+ z.object({type:z.literal('rcon'),server_id:z.string().uuid(),command_template:z.string().trim().min(1).max(600),identity_kind:z.enum(['numeric','eos','steam','uuid','game','minecraft','battleye']),require_online:z.boolean().optional(),target_fingerprint:z.string().optional(),label:z.string().optional()}).strict(),
  z.object({type:z.literal('discord_role'),role_id:z.string().regex(/^\d{17,20}$/),guild_id:z.string().optional(),label:z.string().optional()}).strict()
 ]);
-const samples={numeric:'123456',eos:'0002aaaaaaaaaaaaaaaaaaaaaaaaaaaa',steam:'76561198000000000',uuid:'00000000-0000-4000-8000-000000000000',game:'PLAYER-001'};
+const samples={numeric:'123456',eos:'0002aaaaaaaaaaaaaaaaaaaaaaaaaaaa',steam:'76561198000000000',minecraft:'Steve',battleye:'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',uuid:'00000000-0000-4000-8000-000000000000',game:'PLAYER-001'};
 
 export function createDiscordRewards(getBot){
  const unsafe=[PermissionFlagsBits.Administrator,PermissionFlagsBits.ManageGuild,PermissionFlagsBits.ManageRoles,PermissionFlagsBits.ManageChannels,PermissionFlagsBits.ManageWebhooks,PermissionFlagsBits.BanMembers,PermissionFlagsBits.KickMembers,PermissionFlagsBits.ModerateMembers];
@@ -33,11 +34,12 @@ export function createPurchaseDelivery(db,store,service,rewards){
   for(const a of actions){
    if(a.type==='rcon'){
     if(!deliveryKindsForGame(product.game).includes(a.identity_kind))fail('Use '+gameIdentifierLabel(product.game)+' for this game, or explicitly select the character/plugin identifier required by your command.');
+    if(a.require_online&&a.identity_kind!==gameIdentifierKind(product.game))fail('Online checks require this game’s server-reported account identifier. Numeric character and plugin IDs cannot be matched safely.');
     const server=await service.getServer(ws,a.server_id);if(server.game!==product.game)fail('Purchase command servers must run the product game.');
-    renderPurchaseCommand(a.command_template,samples[a.identity_kind],a.identity_kind,'00000000-0000-4000-8000-000000000000');
+    commandFor('purchase',renderPurchaseCommand(a.command_template,samples[a.identity_kind],a.identity_kind,'00000000-0000-4000-8000-000000000000'),product.game);
     if(/\b(?:GiveItemToPlayer|GiveItemNumToPlayer|GiveExpToPlayer)\b/i.test(a.command_template)&&a.identity_kind!=='numeric')fail('This ARK command requires a numeric in-game PlayerID, not an EOS or Steam account ID.');
     const hash=fingerprint(server);if(checking&&hash!==a.target_fingerprint)fail('The command server connection changed. Ask the owner to review purchase actions.',409);
-    result.push({type:'rcon',server_id:a.server_id,command_template:a.command_template,identity_kind:a.identity_kind,target_fingerprint:hash,label:checking?a.label:server.name});
+    result.push({type:'rcon',server_id:a.server_id,command_template:a.command_template,identity_kind:a.identity_kind,...(a.require_online!==undefined?{require_online:a.require_online}:{}),target_fingerprint:hash,label:checking?a.label:server.name});
    }else{
     if(!workspace.guild_id)fail('Link this workspace to its Discord community first.',409);if(checking&&a.guild_id!==workspace.guild_id)fail('The linked Discord community changed. Review purchase actions.',409);
     const name=await rewards.check(workspace.guild_id,a.role_id);result.push({type:'discord_role',guild_id:workspace.guild_id,role_id:a.role_id,label:checking?a.label:name});
@@ -59,7 +61,7 @@ export function createPurchaseDelivery(db,store,service,rewards){
    }).then(()=>{committed=true;job.claimed=true;});
    if(payload.type==='rcon'){
     const command=renderPurchaseCommand(payload.command_template,purchase.identifier,payload.identity_kind,purchase.id);
-    const response=await service.purchaseCommand(job.workspace_id,payload.server_id,command,claim);
+    const response=await service.purchaseCommand(job.workspace_id,payload.server_id,command,claim,{requireOnline:payload.require_online,identifier:purchase.identifier,identityKind:payload.identity_kind});
     if(/unknown command|command not recognized|invalid player|no player|not found|not online|error:|failed/i.test(response.output||'')){await finish(job,'uncertain','The game returned a possible command error. Verify in-game before resolving; it will not be replayed.');return;}
     await finish(job,'succeeded','RCON acknowledged the configured command. Inventory delivery is not independently verified.');
    }else{
@@ -67,7 +69,7 @@ export function createPurchaseDelivery(db,store,service,rewards){
    }
    await audit(db,job.workspace_id,'Purchase action completed',purchase.id+' - '+payload.type);
   }catch(error){
-   if(!committed&&['SERVER_BUSY','TARGET_NOT_READY'].includes(error.code)&&Date.now()-job.created_at<7*86400000){await db.prepare('UPDATE store_delivery_jobs SET next_attempt=?,detail=?,updated_at=? WHERE id=? AND status=?').run(Date.now()+60000,'Waiting for an available, online server.',Date.now(),job.id,'pending');return;}
+   if(!committed&&['SERVER_BUSY','TARGET_NOT_READY'].includes(error.code)&&Date.now()-job.created_at<7*86400000){await db.prepare('UPDATE store_delivery_jobs SET next_attempt=?,detail=?,updated_at=? WHERE id=? AND status=?').run(Date.now()+60000,error.code==='TARGET_NOT_READY'&&payload.require_online?'Waiting for the recipient and server to be online. No command has been sent.':'Waiting for an available, online server.',Date.now(),job.id,'pending');return;}
    const uncertain=committed&&payload.type==='rcon';await finish(job,uncertain?'uncertain':'blocked',uncertain?'The command outcome is uncertain. Check in-game and resolve manually; it will not be automatically repeated.':(error.status?error.message:'Discord or payment verification is unavailable. Review and retry when ready.').slice(0,500));
   }
  }

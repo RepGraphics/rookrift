@@ -48,7 +48,7 @@ export function upgradeDemo(data) {
   data.activity = data.activity.map(event => ({ ...event, server_id: event.server_id || (event.detail?.includes('The Island') ? 'd1' : event.detail?.includes('Scorched Earth') ? 'd2' : event.detail?.includes('Ragnarok') ? 'd3' : null) }));
   data.templates ??= [
     {id:'tpl-welcome',name:'Community welcome',body:'Welcome to {server}! Join our Discord for rules, events, and support.',created_at:now,updated_at:now},
-    {id:'tpl-save',name:'World save notice',body:'{server} is saving shortly. {players} survivors are currently connected.',created_at:now+1,updated_at:now},
+    {id:'tpl-save',name:'World save notice',body:'{server} is saving shortly. {players} players are currently connected.',created_at:now+1,updated_at:now},
     {id:'tpl-event',name:'Weekend event',body:'Our weekend event is live on {map}. Check Discord for the details.',created_at:now+2,updated_at:now}
   ];
   data.windows ??= [{id:'mw-weekly',name:'Weekly upkeep',server_ids:['d1','d2'],days:[0],start_time:'04:00',duration_minutes:30,time_zone:'UTC',enabled:true,created_at:now}];

@@ -1,7 +1,7 @@
 import {assertAccountOpen} from './account-lock.js';
 import {randomUUID} from 'node:crypto';
 import {z} from 'zod';
-export const workspaceSchema=z.object({name:z.string().trim().min(2).max(60),game_focus:z.enum(['mixed','asa','ase','dayz']).default('mixed')}).strict();
+export const workspaceSchema=z.object({name:z.string().trim().min(2).max(60),game_focus:z.enum(['mixed','asa','ase','minecraft','dayz']).default('mixed')}).strict();
 export async function ensurePersonalWorkspace(db,userId){
  return db.transaction(async()=>{
   await db.prepare('SELECT id FROM users WHERE id=? FOR UPDATE').get(userId);await assertAccountOpen(db,userId);

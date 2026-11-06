@@ -1,5 +1,7 @@
 # Community storefront
 
+Release 0.20 adds Minecraft Java/DayZ beta catalogs and an optional fresh recipient-presence check before sending purchase commands. See [multi-game setup, capabilities and online delivery](MULTIGAME-AND-DELIVERY.md). Default recipients are ASA EOS ID, ASE Steam64 ID, Minecraft Java username and DayZ BattlEye GUID; DayZ native BattlEye does not grant inventory items.
+
 Release 0.10 adds product images, categories, catalog sorting and ordered purchase actions to the one-time Stripe Connect store. Products can use staff delivery or owner-configured server commands and Discord role awards. The store is separate from the owner's Rookrift subscription. The hosted ChatGPT Site simulates payments and delivery in browser storage; deploy the Node service on your Dokploy domain for real operations.
 
 ## Enable payments on the service
