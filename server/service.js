@@ -40,6 +40,7 @@ export const serverUpdateSchema = serverFields.partial().extend({
   maintenance: z.boolean().optional()
 }).strict();
 export const scheduleSchema = z.object({
+  enabled:z.boolean().default(true),
   server_id: z.string().uuid(),
   name: z.string().trim().min(2).max(60),
   action: z.enum(['save', 'broadcast', 'backup']),
@@ -172,7 +173,7 @@ export function createService(db, vault, transport = runRcon,{metadata=createMet
         assertCapacity(ws, (await db.prepare('SELECT count(*) AS n FROM schedules WHERE workspace_id=?').get(workspaceId)).n, 'schedules');
         const id = randomUUID();
         if(data.action==='backup'){const connection=await db.prepare('SELECT provider FROM hosting_connections WHERE server_id=? AND workspace_id=?').get(data.server_id,workspaceId);if(!connection)throw Object.assign(new Error('Connect a hosting provider before scheduling backups.'),{status:400});assertHostingCapability(connection.provider,'backups');}
-        await db.prepare('INSERT INTO schedules(id,workspace_id,server_id,name,action,message,interval_minutes,next_run,enabled,schedule_type,days,start_time,time_zone) VALUES(?,?,?,?,?,?,?,?,1,?,?,?,?)').run(id, workspaceId, data.server_id, data.name, data.action, data.message, data.interval_minutes, nextRun(data),data.schedule_type,JSON.stringify(data.days),data.start_time,data.time_zone);
+        await db.prepare('INSERT INTO schedules(id,workspace_id,server_id,name,action,message,interval_minutes,next_run,enabled,schedule_type,days,start_time,time_zone) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)').run(id, workspaceId, data.server_id, data.name, data.action, data.message, data.interval_minutes, nextRun(data),Number(data.enabled),data.schedule_type,JSON.stringify(data.days),data.start_time,data.time_zone);
         await audit(db, workspaceId, 'Automation created', data.name);
         return await db.prepare('SELECT * FROM schedules WHERE id=?').get(id);
       });
@@ -194,7 +195,7 @@ export function createService(db, vault, transport = runRcon,{metadata=createMet
             const data = scheduleSchema.parse(input);
             const targetServer=await getServer(workspaceId,data.server_id);if(data.action!=='backup')assertGameAction(targetServer.game,data.action);
             if(data.action==='backup'){const connection=await db.prepare('SELECT provider FROM hosting_connections WHERE server_id=? AND workspace_id=?').get(data.server_id,workspaceId);if(!connection)throw Object.assign(new Error('Connect a hosting provider before scheduling backups.'),{status:400});assertHostingCapability(connection.provider,'backups');}
-            await db.prepare('UPDATE schedules SET server_id=?,name=?,action=?,message=?,interval_minutes=?,next_run=?,schedule_type=?,days=?,start_time=?,time_zone=? WHERE id=?').run(data.server_id, data.name, data.action, data.message, data.interval_minutes, nextRun(data),data.schedule_type,JSON.stringify(data.days),data.start_time,data.time_zone,id);
+            await db.prepare('UPDATE schedules SET server_id=?,name=?,action=?,message=?,interval_minutes=?,next_run=?,enabled=?,schedule_type=?,days=?,start_time=?,time_zone=? WHERE id=?').run(data.server_id, data.name, data.action, data.message, data.interval_minutes, nextRun(data),Number(Object.hasOwn(input,'enabled')?data.enabled:original.enabled),data.schedule_type,JSON.stringify(data.days),data.start_time,data.time_zone,id);
           }
           await audit(db, workspaceId, 'Automation updated', original.name);
           return getSchedule(workspaceId, id, false);

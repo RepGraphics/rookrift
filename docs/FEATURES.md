@@ -2,6 +2,10 @@
 
 The hosted preview demonstrates every workflow using local sample data. On a live deployment the same controls use the authenticated API, stored workspace settings, and supported game adapters.
 
+## Start with a game task template
+
+Open **Automations** or **Workflows**, then browse the [game-specific template library](TASK-TEMPLATES.md). Choose ARK Ascended, ARK Evolved, Minecraft Java or DayZ, filter by category, and select a target server. Saves, announcements, event reminders, provider backups, restart countdowns and connection checks open as editable disabled drafts. Requirements are shown before selection; unsupported host or game actions cannot be selected. Review the schedule, messages and steps before saving and enabling.
+
 ## Organise and edit a fleet
 
 Open **Game servers**. Use the edit icon on a card, or **Manage → Edit connection**, to change its name, game, map label, capacity, RCON host/port, and server group. Group names are optional and shared across both ARK games. Filter by group, game, connection status, or maintenance, and sort by name, player count, or connection status.

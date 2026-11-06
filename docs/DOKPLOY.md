@@ -175,3 +175,7 @@ Rebuild the application to enable [workspace support snapshots and ownership lin
 ## Release 0.22 player activity
 
 Back up PostgreSQL before schema 25 and keep one stop-first application replica. The release adds observed session history, timelines, rankings and scoped CSV exports under **Players → Activity & sessions** and inside player profiles. No new environment variables or dependencies are required. Tracking begins with new player snapshots; old sightings are not backfilled. Startup closes prior open observations without counting downtime. Retention follows the workspace's existing 2/7/30-day plan allowance. Read [player activity](PLAYER-ACTIVITY.md) for the polling estimates, access boundaries, export limit and migration behavior. Rollback to 0.21 requires its schema-24 backup.
+
+## Release 0.23 game task templates
+
+Rebuild the application for the [game-specific template library](TASK-TEMPLATES.md) in Automations and Workflows. No database migration, dependencies or new environment settings are required; schema 25 is retained. Templates create editable disabled drafts and use the existing native adapters and verified provider capabilities. Existing tasks retain their current state and schedule.
