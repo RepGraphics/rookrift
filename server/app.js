@@ -1,3 +1,4 @@
+import {createPlatformSupport} from './platform-support.js';
 import {createAdminPasswords} from './admin-passwords.js';
 import {recordPlatformActivity} from './platform-activity.js';
 import {legalConfig} from '../shared/legal.js';
@@ -85,7 +86,7 @@ export function createApp({
   const banDirectory = createBanDirectory(db),
     team = createTeam(db),
     profiles = createPlayerProfiles(db),
-    platformAdmin = createPlatformAdmin(db, community, vault, env),adminPasswords=createAdminPasswords(db,email);
+    platformAdmin = createPlatformAdmin(db, community, vault, env),adminPasswords=createAdminPasswords(db,email),platformSupport=createPlatformSupport(db);
   const app = express(),
     origin = new URL(env.APP_URL || 'http://localhost:3000').origin;
   const deletion=createAccountDeletion(db,{billing,service,account:accountService,store,env});app.locals.deletion=deletion;
@@ -655,6 +656,7 @@ export function createApp({
   app.patch('/api/platform/email',async(req,res)=>res.json(await db.transaction(async()=>{const result=await email.save(req.body);await recordPlatformActivity(db,req.user,'Email delivery settings updated');return result;})));
   app.post('/api/platform/email/test',rateLimit({windowMs:900000,limit:5,standardHeaders:'draft-8',legacyHeaders:false}),async(req,res)=>res.json(await email.test(req.user.id)));
   app.post('/api/platform/email/retry',async(req,res)=>res.json(await email.retryFailed()));
+  app.get('/api/platform/workspaces/:id/support',async(req,res)=>res.set('Cache-Control','no-store').json(await platformSupport.workspace(req.user,req.params.id)));
   app.patch('/api/platform/workspaces/:id', async (req,res)=>res.json(await platformAdmin.updateWorkspace(req.user,req.params.id,req.body)));
   app.put('/api/platform/workspaces/:id/community', async (req,res)=>res.json(await platformAdmin.updateCommunity(req.user,req.params.id,req.body)));
   app.patch('/api/platform/users/:id/suspension', async (req,res)=>res.json(await platformAdmin.suspend(req.user,req.params.id,req.body?.suspended)));

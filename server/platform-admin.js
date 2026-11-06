@@ -16,7 +16,7 @@ export function createPlatformAdmin(db, community, vault, env = process.env) {
     const users = await db.prepare(`SELECT u.id,u.name,u.avatar,u.discord_id,EXISTS(SELECT 1 FROM platform_admins p WHERE p.user_id=u.id) AS platform_admin,
       EXISTS(SELECT 1 FROM suspended_users s WHERE s.user_id=u.id) AS suspended,u.access_token<>'' AS discord_connected,
       a.email,a.created_at AS account_created_at,
-      (SELECT count(*) FROM workspaces w WHERE w.owner_id=u.id) AS workspaces,
+      (SELECT count(*) FROM workspaces w WHERE w.owner_id=u.id AND w.closed_at IS NULL) AS workspaces,
       (SELECT count(*) FROM sessions s WHERE s.user_id=u.id AND s.expires_at>?) AS active_sessions
       FROM users u LEFT JOIN local_accounts a ON a.user_id=u.id WHERE u.id<>'deleted-account' ORDER BY u.name,u.id`).all(Date.now());
     const workspaces = await db.prepare(`SELECT w.id,w.name,w.plan,w.subscription_status,w.created_at,w.guild_id,w.alert_channel_id,w.alerts_enabled,w.failure_threshold,u.id AS owner_id,u.name AS owner_name,

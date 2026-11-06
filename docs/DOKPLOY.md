@@ -163,3 +163,7 @@ Back up PostgreSQL, then rebuild the application. Schema 21 adds root-only platf
 ## Release 0.18 focused admin and password recovery
 
 Back up PostgreSQL before rebuilding. Schema 22 adds temporary-password and replacement-challenge state plus idempotent reset references. Existing passwords are unchanged by migration. Admins can queue recovery emails or generate a one-time handover credential that requires replacement when used to sign in. SMTP must be enabled for email resets. See [admin password recovery](ADMIN-PASSWORD-RECOVERY.md). No new environment variables or dependencies are needed. Rollback requires the matching schema-21 backup.
+
+## Release 0.19 platform support
+
+Rebuild the application to enable [workspace support snapshots and ownership links](PLATFORM-SUPPORT.md). The release retains schema 22, adds no dependencies/environment settings and performs no host or game actions when a support summary is opened. Version 0.18 remains compatible with this database schema.
