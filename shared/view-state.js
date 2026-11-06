@@ -4,7 +4,7 @@ export const VIEW_VALUES={
  store:['catalog','categories','promotions','analytics','orders','settings'],
  operations:['health','incidents','announcements','maintenance','hosting','moderation'],
  players:['players','profiles','bans'],configuration:['templates','history'],workflows:['definitions','runs'],
- account:['profile','security','appearance','billing','deletion'],admin:['overview','users','workspaces','settings'],
+ account:['profile','security','appearance','billing','deletion'],admin:['overview','users','workspaces','activity','settings'],
  integration:['email','discord','subscriptions','store'],editor:['pages','appearance']
 };
 export const ACCOUNT_ALIASES={discord:'security','delete-verified':'deletion'};

@@ -1,0 +1,14 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {randomBytes} from 'node:crypto';
+import {openDatabase} from '../server/db.js';
+import {createVault} from '../server/crypto.js';
+import {createPlatformAdmin} from '../server/platform-admin.js';
+import {platformActivity} from '../server/platform-activity.js';
+async function fixture(t){const db=await openDatabase(':memory:');t.after(()=>db.close());for(const id of ['root','member'])await db.prepare('INSERT INTO users(id,name,access_token) VALUES(?,?,?)').run(id,id,'');await db.prepare("INSERT INTO platform_admins VALUES('root',1)").run();await db.prepare("INSERT INTO workspaces(id,owner_id,name,created_at) VALUES('ws','member','Community',1)").run();const vault=createVault(randomBytes(32).toString('hex')),root={id:'root',name:'Root',platform_admin:true},admin=createPlatformAdmin(db,{saveSite:async()=>({ok:true})},vault,{});return{db,admin,root,vault};}
+test('platform activity is root-only and records safe settings and account changes atomically',async t=>{
+ const {db,admin,root}=await fixture(t);await assert.rejects(admin.overview({id:'member'}),e=>e.status===403);await assert.rejects(admin.updateSettings({id:'member'},{discord_bot_token:'private-token'}),e=>e.status===403);await admin.updateSettings(root,{discord_bot_token:'private-token'});await admin.suspend(root,'member',true);const rows=await platformActivity(db,root);assert.equal(rows.length,2);assert.equal(rows.find(r=>r.action==='Account suspension changed').target_name,'member');assert.ok(!JSON.stringify(rows).includes('private-token'));await assert.rejects(admin.updateSettings({id:'missing',platform_admin:true},{stripe_secret_key:'should-rollback'}));assert.equal(await db.prepare("SELECT key FROM platform_settings WHERE key='stripe_secret_key'").get(),undefined);assert.equal((await platformActivity(db,root)).length,2);
+});
+test('platform activity caps results, expires after 90 days and removes deleted account references',async t=>{
+ const {db,root,admin}=await fixture(t);await admin.suspend(root,'member',true);await db.prepare('INSERT INTO platform_activity(id,actor_id,action,created_at) VALUES(?,?,?,?)').run('old','root','Old action',Date.now()-91*86400000);assert.equal((await admin.overview(root)).activity.length,1);assert.equal(await db.prepare("SELECT id FROM platform_activity WHERE id='old'").get(),undefined);await db.prepare("DELETE FROM workspaces WHERE id='ws'").run();await db.prepare("DELETE FROM users WHERE id='member'").run();const row=await db.prepare('SELECT target_user_id FROM platform_activity').get();assert.equal(row.target_user_id,null);await db.exec("INSERT INTO platform_activity(id,action,created_at) SELECT 'event-'||i,'Settings changed',extract(epoch from now())::bigint*1000 FROM generate_series(1,105) i");assert.equal((await platformActivity(db,root)).length,100);
+});

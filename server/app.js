@@ -1,3 +1,4 @@
+import {recordPlatformActivity} from './platform-activity.js';
 import {legalConfig} from '../shared/legal.js';
 import {createDiscordWorkspace} from './discord-workspace.js';
 import {avatarImage} from './avatars.js';
@@ -650,7 +651,7 @@ export function createApp({
   app.get('/api/platform/bootstrap', async (req,res)=>res.set('Cache-Control','no-store').json({...await platformAdmin.overview(req.user),csrf:req.auth.csrf}));
   app.patch('/api/platform/settings', async (req,res)=>res.json(await platformAdmin.updateSettings(req.user,req.body)));
   app.get('/api/platform/email',async(req,res)=>res.json(await email.settings()));
-  app.patch('/api/platform/email',async(req,res)=>res.json(await email.save(req.body)));
+  app.patch('/api/platform/email',async(req,res)=>res.json(await db.transaction(async()=>{const result=await email.save(req.body);await recordPlatformActivity(db,req.user,'Email delivery settings updated');return result;})));
   app.post('/api/platform/email/test',rateLimit({windowMs:900000,limit:5,standardHeaders:'draft-8',legacyHeaders:false}),async(req,res)=>res.json(await email.test(req.user.id)));
   app.post('/api/platform/email/retry',async(req,res)=>res.json(await email.retryFailed()));
   app.patch('/api/platform/workspaces/:id', async (req,res)=>res.json(await platformAdmin.updateWorkspace(req.user,req.params.id,req.body)));

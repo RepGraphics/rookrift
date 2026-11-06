@@ -1,23 +1,23 @@
 export const GAME_IDENTIFIER_GUIDES = {
   asa: {
     name: 'ARK: Survival Ascended',
-    summary: 'Use the identifier your server reports for your character. Do not enter your display name.',
+    summary: 'ASA shop purchases use your EOS ID: 32 hexadecimal characters. Do not enter a Steam ID or display name.',
     steps: [
       'Join the server and ask an owner or admin to run ListPlayers in the server console.',
-      'Copy your exact player identifier from that output. Depending on the server setup, this may be an EOS ID, Steam64 ID, or plugin account ID.',
+      'Copy your 32-character EOS ID from that output, or choose your saved ASA account at checkout.',
       'If the product asks for a numeric PlayerID, an admin can run cheat GetPlayerIDForPlayerName "YourName" and give you the returned value.'
     ],
-    note: 'For Steam64, open your Steam profile and copy the 17-digit ID from a trusted Steam ID lookup. For EOS, ask a server admin to copy the EOS ID shown by the server or its admin tools.'
+    note: 'EOS identifies your ASA account. Numeric PlayerID commands require a separate character ID; EOS delivery needs a compatible command or plugin.'
   },
   ase: {
     name: 'ARK: Survival Evolved',
-    summary: 'Use the identifier your server reports for your character. Do not enter your display name.',
+    summary: 'ASE shop purchases use your 17-digit Steam64 ID. Do not enter an EOS ID or display name.',
     steps: [
       'Join the server and ask an owner or admin to run ListPlayers in the server console.',
-      'Copy your exact player identifier from that output. Depending on the server setup, this may be an EOS ID, Steam64 ID, or plugin account ID.',
+      'Copy your 17-digit Steam64 ID from that output, or choose your saved ASE account at checkout.',
       'If the product asks for a numeric PlayerID, an admin can run cheat GetPlayerIDForPlayerName "YourName" and give you the returned value.'
     ],
-    note: 'For Steam64, open your Steam profile and copy the 17-digit ID from a trusted Steam ID lookup. For EOS, ask a server admin to copy the EOS ID shown by the server or its admin tools.'
+    note: 'A Steam64 ID identifies your Steam account. Numeric PlayerID commands require a separate character ID; Steam ID delivery needs a compatible command or plugin.'
   },
   dayz: {
     name: 'DayZ',

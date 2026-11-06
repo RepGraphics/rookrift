@@ -3,6 +3,7 @@ import { hash } from './crypto.js';
 import { z } from 'zod';
 import { PLANS } from './plans.js';
 import {presentUser} from './avatars.js';
+import {recordPlatformActivity,platformActivity} from './platform-activity.js';
 
 const fail = (message, status = 403) => Object.assign(new Error(message), { status });
 
@@ -23,13 +24,13 @@ export function createPlatformAdmin(db, community, vault, env = process.env) {
       FROM workspaces w JOIN users u ON u.id=w.owner_id WHERE w.closed_at IS NULL ORDER BY w.created_at DESC,w.id`).all();
     const details=await Promise.all(workspaces.map(async workspace=>({
       ...workspace,
-      site: await db.prepare('SELECT slug,title,summary,rules,discord_url,enabled,applications_open,show_connection_details,questions,server_ids FROM community_sites WHERE workspace_id=?').get(workspace.id)
+      site: await db.prepare('SELECT slug,title,summary,rules,discord_url,enabled,applications_open,join_requests_open,staff_applications_open,join_questions,staff_questions,show_connection_details,questions,server_ids FROM community_sites WHERE workspace_id=?').get(workspace.id)
     })));
     const stored=await db.prepare('SELECT key FROM platform_settings').all();
     const keys=new Set(stored.map(row=>row.key));
     const storedProvider=await db.prepare("SELECT value FROM platform_settings WHERE key='platform_billing_provider'").get();
     const provider=storedProvider?vault.decrypt(storedProvider.value):env.PLATFORM_BILLING_PROVIDER||'stripe';
-    return { user:presentUser(user),users:users.map(presentUser), workspaces:details, settings: {
+    return { user:presentUser(user),users:users.map(presentUser), workspaces:details,activity:await platformActivity(db,user), settings: {
       discord_client_id: {configured:Boolean(env.DISCORD_CLIENT_ID||keys.has('discord_client_id'))},
       discord_client_secret: {configured:Boolean(env.DISCORD_CLIENT_SECRET||keys.has('discord_client_secret'))},
       discord_bot_token: {configured:Boolean(env.DISCORD_BOT_TOKEN||keys.has('discord_bot_token'))},
@@ -51,10 +52,11 @@ export function createPlatformAdmin(db, community, vault, env = process.env) {
       ,tebex_cluster_url: {configured:Boolean(env.TEBEX_CLUSTER_URL||keys.has('tebex_cluster_url'))}
     }};
   }
-  return {
+  const admin={
     overview,
     async suspend(user, id, suspended) {
       requireRoot(user);
+      z.boolean().parse(suspended);
       if(id==='deleted-account')throw fail('This account is deleted.',404);
       if (id === user.id) throw fail('The platform root account cannot be suspended.', 400);
       const target = await db.prepare('SELECT id FROM users WHERE id=?').get(id);
@@ -67,6 +69,7 @@ export function createPlatformAdmin(db, community, vault, env = process.env) {
     async revokeSessions(user, id) {
       requireRoot(user);
       if (id === user.id) throw fail('The platform root account cannot revoke its own sessions here.', 400);
+      if(!await db.prepare('SELECT id FROM users WHERE id=?').get(id))throw fail('User not found.',404);
       await db.prepare('DELETE FROM sessions WHERE user_id=?').run(id);
       return { ok: true };
     },
@@ -100,7 +103,8 @@ export function createPlatformAdmin(db, community, vault, env = process.env) {
       requireRoot(user);
       const exists=await db.prepare('SELECT id FROM workspaces WHERE id=?').get(id);
       if(!exists)throw fail('Workspace not found.',404);
-      return community.saveSite(id,input);
+      const site=await db.prepare('SELECT logo_url FROM community_sites WHERE workspace_id=?').get(id);
+      return community.saveSite(id,{...input,logo_url:input.logo_url??site?.logo_url??''});
     },
     async updateSettings(user,input) {
       requireRoot(user);
@@ -117,4 +121,18 @@ export function createPlatformAdmin(db, community, vault, env = process.env) {
       return createSession(row.root_user_id);
     }
   };
+  const recorded={suspend:'Account suspension changed',revokeSessions:'Account sessions revoked',impersonate:'Support session opened',updateWorkspace:'Workspace settings updated',updateCommunity:'Community page updated',updateSettings:'Global integration settings updated'};
+  for(const [method,action]of Object.entries(recorded)){
+    const original=admin[method];
+    admin[method]=async(user,...args)=>db.transaction(async()=>{
+      const result=await original(user,...args);
+      await recordPlatformActivity(db,user,action,{
+        targetUser:['suspend','revokeSessions','impersonate'].includes(method)?args[0]:null,
+        targetWorkspace:['updateWorkspace','updateCommunity'].includes(method)?args[0]:null,
+        detail:method==='suspend'?(args[1]?'Sign-in blocked; existing sessions removed.':'Sign-in restored.'):method==='updateSettings'?'Credential values are withheld.':''
+      });
+      return result;
+    });
+  }
+  return admin;
 }

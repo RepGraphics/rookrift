@@ -1,7 +1,7 @@
 import {createHash} from 'node:crypto';
 import {z} from 'zod';
 import {PermissionFlagsBits} from 'discord.js';
-import {renderPurchaseCommand} from '../shared/store-delivery.js';
+import {renderPurchaseCommand,deliveryKindsForGame,gameIdentifierLabel} from '../shared/store-delivery.js';
 import {parseActions,refreshDeliveryStatus} from './store-delivery-state.js';
 import {audit} from './db.js';
 
@@ -32,6 +32,7 @@ export function createPurchaseDelivery(db,store,service,rewards){
   const kinds=new Set(actions.filter(a=>a.type==='rcon').map(a=>a.identity_kind));if(kinds.size>1)fail('All command actions on a product must use the same recipient ID type.');
   for(const a of actions){
    if(a.type==='rcon'){
+    if(!deliveryKindsForGame(product.game).includes(a.identity_kind))fail('Use '+gameIdentifierLabel(product.game)+' for this game, or explicitly select the character/plugin identifier required by your command.');
     const server=await service.getServer(ws,a.server_id);if(server.game!==product.game)fail('Purchase command servers must run the product game.');
     renderPurchaseCommand(a.command_template,samples[a.identity_kind],a.identity_kind,'00000000-0000-4000-8000-000000000000');
     if(/\b(?:GiveItemToPlayer|GiveItemNumToPlayer|GiveExpToPlayer)\b/i.test(a.command_template)&&a.identity_kind!=='numeric')fail('This ARK command requires a numeric in-game PlayerID, not an EOS or Steam account ID.');

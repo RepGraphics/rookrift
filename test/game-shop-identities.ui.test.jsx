@@ -1,0 +1,12 @@
+import React from 'react';
+import {render,screen,cleanup} from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import {PurchaseActionsEditor} from '../src/store-components';
+import {CommunityStorefront} from '../src/community-store-ui';
+afterEach(()=>{cleanup();vi.unstubAllGlobals();});
+test('ASE purchase commands start with Steam64 and only offer matching account types or explicit character/plugin IDs',async()=>{
+ const user=userEvent.setup();render(<PurchaseActionsEditor product={{title:'ASE kit',game:'ase',delivery_actions:[]}} servers={[]} read={async()=>({ready:false,roles:[]})} submit={vi.fn()}/>);await user.click(screen.getByLabelText('Enable automatic purchase actions'));await user.click(screen.getByRole('button',{name:'Add server command'}));expect(screen.getByLabelText('Action 1 recipient ID type').value).toBe('steam');expect(screen.queryByRole('option',{name:'EOS ID'})).toBeNull();expect(screen.getByRole('option',{name:'Numeric in-game PlayerID'})).toBeTruthy();
+});
+test('ASA checkout excludes a saved Steam ID and validates the manually entered EOS format before submission',async()=>{
+ const product={id:'kit',title:'ASA kit',game:'asa',description:'An ASA package.',price:0,delivery:{requires_identifier:true,identifier_kind:'eos'},availability:{available:true}},view={currency:'gbp',delivery_note:'Ask staff for delivery.',refund_policy:'Contact staff.',checkout_available:true,categories:[],products:[product],orders:[]},fetch=vi.fn(async path=>({ok:true,json:async()=>path.endsWith('/member')?{accounts:[{id:'incorrect',game:'asa',identifier:'76561198000000000',label:'Wrong account'},{id:'correct',game:'asa',identifier:'0002aaaaaaaaaaaaaaaaaaaaaaaaaaaa',label:'ASA survivor'}]}:view}));vi.stubGlobal('fetch',fetch);const user=userEvent.setup();render(<CommunityStorefront slug="community" viewer={{id:'buyer'}} enabled/>);await user.click(await screen.findByRole('button',{name:'Buy ASA kit'}));expect(screen.queryByRole('option',{name:/Wrong account/})).toBeNull();expect(screen.getByRole('option',{name:/ASA survivor/})).toBeTruthy();const input=screen.getByLabelText(/^EOS ID/);await user.type(input,'76561198000000000');expect(input.checkValidity()).toBe(false);await user.clear(input);await user.type(input,'0002aaaaaaaaaaaaaaaaaaaaaaaaaaaa');expect(input.checkValidity()).toBe(true);expect(fetch.mock.calls.some(([path])=>path.endsWith('/checkout'))).toBe(false);
+});

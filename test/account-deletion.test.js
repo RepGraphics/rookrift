@@ -102,7 +102,7 @@ async function checkoutFixture(f,workspace,buyer,{uncertain=false}={}){
  await f.db.prepare("INSERT INTO community_stores(workspace_id,enabled,stripe_account_id,charges_enabled,updated_at) VALUES(?,1,'acct_store',1,1)").run(workspace);
  await f.db.prepare("INSERT INTO store_products(id,workspace_id,title,description,price,game,published,created_at,updated_at) VALUES(?,?,'Kit','A test kit for players',500,'asa',1,1,1)").run(product,workspace);
  const stripe={accounts:{retrieve:async()=>({id:'acct_store',charges_enabled:true})},checkout:{sessions:{create:async()=>{started();await hold;if(uncertain)throw new Error('Lost checkout response');return session;},retrieve:async()=>session,expire:async()=>{session.status='expired';return session;}}}},store=createCommunityStore(f.db,{...f.env,STRIPE_CONNECT_WEBHOOK_SECRET:'fixture'},stripe),engine=createAccountDeletion(f.db,{billing:f.billing,service:f.service,store,account:{verifyTotp:async()=>true},env:f.env}),auth={token_hash:hash('owner')},proof=await engine.password('owner',auth,{password:f.password});
- return{id,store,engine,auth,proof,entered,release,session,start:()=>store.checkout('store-'+workspace,{id:buyer},{product_id:product,identifier:'EOS-TEST-PLAYER',request_id:id})};
+ return{id,store,engine,auth,proof,entered,release,session,start:()=>store.checkout('store-'+workspace,{id:buyer},{product_id:product,identifier:'0002aaaaaaaaaaaaaaaaaaaaaaaaaaaa',request_id:id})};
 }
 
 test('closing a buyer or merchant account waits for an in-flight store checkout and expires its payment link',async t=>{

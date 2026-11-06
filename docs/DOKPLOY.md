@@ -155,3 +155,7 @@ Back up the active PostgreSQL database, then rebuild/restart the application. Sc
 ## Release 0.16 navigation and package bundles
 
 Back up PostgreSQL before rebuilding the app. Schema 20 adds bundle-content snapshots; existing rows get empty lists. No new environment variables are required. Register updated Discord commands using `docker compose exec rookrift node server/register-commands.js`; it can read encrypted admin settings using the configured database/key. See [navigation and packages](NAVIGATION-AND-PACKAGES.md). A rollback requires the matching schema-19 database backup.
+
+## Release 0.17 admin experience and recipient identities
+
+Back up PostgreSQL, then rebuild the application. Schema 21 adds root-only platform activity with 90-day rolling retention. Standard ASA checkouts now validate EOS IDs and ASE checkouts validate Steam64 IDs; explicitly configured numeric/plugin command recipients and existing order snapshots are preserved. See [admin and game identities](ADMIN-AND-GAME-IDENTITIES.md). No new dependencies or environment variables are needed. Rollback requires the matching schema-20 database backup.

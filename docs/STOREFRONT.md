@@ -66,3 +66,7 @@ See [store growth](STORE-GROWTH.md) for coupon codes, scheduled sales, availabil
 ## Bundles and Discord shopping (0.16)
 
 Owners can combine 2-6 same-game packages into a reviewed draft with a single price and staff/combined automatic delivery. Product duplication creates an unpublished copy without actions or availability limits. See [navigation and packages](NAVIGATION-AND-PACKAGES.md) for snapshot semantics, independent bundle limits and the new ephemeral `/shop` and `/orders` commands. Store tabs now survive reloads through the dashboard URL. Schema 20 is required.
+
+## Recipient identities (0.17)
+
+Standard ASA products use EOS IDs (32 hexadecimal characters); ASE uses 17-digit Steam64 IDs. Purchase-command actions start with that game account type, with explicit numeric PlayerID/plugin overrides when required by the command. Saved recipients are filtered and validated against the required format. Existing order snapshots are retained. See [admin and game identities](ADMIN-AND-GAME-IDENTITIES.md).

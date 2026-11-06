@@ -1,4 +1,8 @@
 export const DELIVERY_ID_KINDS={numeric:'Numeric in-game PlayerID',eos:'EOS ID',steam:'Steam64 ID',uuid:'UUID',game:'Game / plugin account ID'};
+export const gameIdentifierKind=game=>game==='asa'?'eos':game==='ase'?'steam':'game';
+export const gameIdentifierLabel=game=>DELIVERY_ID_KINDS[gameIdentifierKind(game)];
+export const deliveryKindsForGame=game=>[gameIdentifierKind(game),'numeric','uuid','game'].filter((value,index,all)=>all.indexOf(value)===index);
+export function publicDelivery(actions,game){const commands=actions.filter(a=>a.type==='rcon');return{automatic:actions.length>0,commands:commands.length,discord_roles:actions.filter(a=>a.type==='discord_role').length,requires_identifier:commands.length>0||actions.length===0,identifier_kind:commands[0]?.identity_kind||gameIdentifierKind(game)};}
 export function deliveryIdentifier(value,kind='game'){
  if(typeof value!=='string')throw new Error('Enter a recipient identifier.');
  const id=value.trim(),patterns={numeric:/^[1-9][0-9]{0,19}$/,eos:/^[a-f0-9]{32}$/i,steam:/^[0-9]{17}$/,uuid:/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i,game:/^[A-Za-z0-9_-]{3,100}$/};

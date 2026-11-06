@@ -1,6 +1,6 @@
 import {randomUUID} from 'node:crypto';
 export const parseActions=value=>{try{return JSON.parse(value||'[]');}catch{return[];}};
-export function publicDelivery(actions){const commands=actions.filter(a=>a.type==='rcon');return{automatic:actions.length>0,commands:commands.length,discord_roles:actions.filter(a=>a.type==='discord_role').length,requires_identifier:commands.length>0||actions.length===0,identifier_kind:commands[0]?.identity_kind||'game'};}
+export {publicDelivery} from '../shared/store-delivery.js';
 export async function enqueueDelivery(db,order){
  if(order.payment_status!=='paid')return;
  const actions=parseActions(order.delivery_actions);

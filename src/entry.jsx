@@ -21,7 +21,7 @@ export function SiteRouter({pathname=window.location.pathname,search=window.loca
  else if(route.page==='login'||route.page==='register')content=<Authentication register={route.page==='register'}/>;
  else if(route.page==='reset-password')content=<PasswordReset/>;
  else if(route.page==='dashboard')content=<Dashboard/>;
- else if(route.page==='admin')content=<Administration/>;
+ else if(route.page==='admin')content=<Administration demo={demo}/>;
  else if(route.page==='community')content=<Community slug={route.slug} demo={demo}/>;
  else return <main className="route-missing"><img src="/brand/favicon-64.png" alt="Rookrift" width="48" height="48"/><h1>This page has wandered off.</h1><p>Head back to Rookrift to find your way.</p><a className="button" href="/">Back to home <ArrowRight size={16}/></a></main>;
  return <Suspense fallback={<main className="route-missing" role="status"><img src="/brand/favicon-64.png" alt="Rookrift" width="48" height="48"/><p>Opening Rookrift…</p></main>}>{content}</Suspense>;

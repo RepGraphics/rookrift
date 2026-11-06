@@ -1,2 +1,2 @@
 export const parseActions=value=>Array.isArray(value)?value:JSON.parse(value||'[]');
-export function publicDelivery(actions){const commands=actions.filter(a=>a.type==='rcon');return{automatic:actions.length>0,commands:commands.length,discord_roles:actions.filter(a=>a.type==='discord_role').length,requires_identifier:commands.length>0||actions.length===0,identifier_kind:commands[0]?.identity_kind||'game'};}
+export {publicDelivery} from '../shared/store-delivery';

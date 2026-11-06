@@ -42,12 +42,41 @@ async function fixture(t,options={}){
 const promotionInput=(extra={})=>({name:'Welcome discount',kind:'coupon',code:'WELCOME10',discount_type:'percent',discount_value:10,minimum_amount:0,product_ids:[],category_ids:[],starts_at:null,ends_at:null,usage_limit:null,customer_limit:null,enabled:true,...extra});
 const availabilityInput=(extra={})=>({stock_limit:null,customer_limit:null,available_from:null,available_until:null,...extra});
 
+test('platform community edits load separate application settings and preserve the community logo',async t=>{
+ const f=await fixture(t);await f.db.prepare("INSERT INTO platform_admins VALUES('owner',1)").run();
+ await f.community.saveSite('w',{...f.site,logo_url:'https://example.com/community.png',join_requests_open:false,staff_applications_open:true});
+ const overview=await f.request('/platform'),site=overview.body.workspaces.find(w=>w.id==='w').site;assert.equal(overview.status,200);assert.equal(site.join_requests_open,0);assert.equal(site.staff_applications_open,1);
+ const result=await f.request('/platform/workspaces/w/community','PUT',{...f.site,join_requests_open:false,staff_applications_open:true});assert.equal(result.status,200);assert.equal((await f.db.prepare("SELECT logo_url FROM community_sites WHERE workspace_id='w'").get()).logo_url,'https://example.com/community.png');assert.equal((await f.request('/platform')).body.activity[0].action,'Community page updated');
+});
+
+test('staff-delivered ASA checkout requires EOS and ASE checkout requires Steam64, including saved accounts',async t=>{
+ const f=await fixture(t),p=await f.openStore(),eos='0002aaaaaaaaaaaaaaaaaaaaaaaaaaaa',steam='76561198000000000',buyer={id:'buyer'};
+ assert.equal((await f.store.publicPage(f.site.slug,buyer)).products[0].delivery.identifier_kind,'eos');
+ await assert.rejects(f.store.checkout(f.site.slug,buyer,{product_id:p.id,identifier:steam,request_id:randomUUID()}),/valid EOS ID/);
+ await f.store.checkout(f.site.slug,buyer,{product_id:p.id,identifier:eos,request_id:randomUUID()});
+ const id=randomUUID();await f.db.prepare('INSERT INTO community_game_accounts(id,workspace_id,user_id,game,identifier,label,created_at) VALUES(?,?,?,?,?,?,?)').run(id,'w','buyer','asa',steam,'Legacy incorrect ID',Date.now());
+ await assert.rejects(f.store.checkout(f.site.slug,buyer,{product_id:p.id,account_id:id,request_id:randomUUID()}),/valid EOS ID/);
+ await f.store.product('w',null,{title:'Evolved supplies',description:'An ASE starter kit for players.',game:'ase',price:500,published:true});const ase=(await f.store.manage('w')).products.find(v=>v.game==='ase');
+ assert.equal((await f.store.publicPage(f.site.slug,buyer)).products.find(v=>v.id===ase.id).delivery.identifier_kind,'steam');
+ await assert.rejects(f.store.checkout(f.site.slug,buyer,{product_id:ase.id,identifier:eos,request_id:randomUUID()}),/valid Steam64 ID/);
+ const order=await f.store.checkout(f.site.slug,buyer,{product_id:ase.id,identifier:steam,request_id:randomUUID()});assert.equal((await f.db.prepare('SELECT identifier FROM store_orders WHERE id=?').get(order.order_id)).identifier,steam);
+});
+
+test('purchase actions reject the other game account type and retain explicit numeric PlayerID command support',async t=>{
+ const f=await fixture(t),p=await f.openStore(),server=await f.service.addServer('w',{name:'ASA delivery',game:'asa',map:'Island',host:'8.8.8.8',port:27020,password:'fixture'}),path='/community/store/products/'+p.id+'/actions',base={type:'rcon',server_id:server.id,command_template:'GiveKit {identifier}',identity_kind:'steam'};
+ assert.equal((await f.request(path,'PUT',{actions:[base],confirmation:p.title})).status,400);
+ assert.equal((await f.request(path,'PUT',{actions:[{...base,identity_kind:'eos'}],confirmation:p.title})).status,200);
+ assert.equal((await f.store.publicPage(f.site.slug,{id:'buyer'})).products[0].delivery.identifier_kind,'eos');
+ assert.equal((await f.request(path,'PUT',{actions:[{...base,identity_kind:'numeric',command_template:'GiveExpToPlayer {identifier} 10 0 0'}],confirmation:p.title})).status,200);
+ assert.equal((await f.store.publicPage(f.site.slug,{id:'buyer'})).products[0].delivery.identifier_kind,'numeric');
+});
+
 test('package bundles copy same-game contents into a new draft and keep order snapshots independent of source edits',async t=>{
  const f=await fixture(t),first=await f.openStore();await f.store.product('w',null,{title:'Building supplies',description:'A package of building supplies delivered by staff.',game:'asa',price:750,published:true});const second=(await f.store.manage('w')).products.find(p=>p.id!==first.id),input={title:'Explorer bundle',description:'Two supply packages delivered together by staff.',price:1000,source_ids:[first.id,second.id],automatic:false,confirmation:'Explorer bundle'};
  assert.equal((await f.request('/community/store/bundles','POST',input,'admin')).status,403);assert.equal((await f.request('/community/store/bundles','POST',input,'owner',false)).status,403);
  assert.equal((await f.request('/community/store/bundles','POST',{...input,confirmation:'wrong'})).status,400);assert.equal((await f.request('/community/store/bundles','POST',{...input,source_ids:[first.id,first.id]})).status,400);
  const created=await f.request('/community/store/bundles','POST',input);assert.equal(created.status,201);const bundle=created.body.products.find(p=>p.id===created.body.saved_product_id);assert.equal(bundle.published,0);assert.equal(JSON.parse(bundle.bundle_contents).length,2);assert.equal(JSON.parse(bundle.delivery_actions).length,0);
- await f.store.product('w',bundle.id,{title:bundle.title,description:bundle.description,price:bundle.price,game:'asa',published:true});const result=await f.store.checkout('test-community',{id:'buyer'},{product_id:bundle.id,identifier:'EOS-BUYER',request_id:randomUUID()});let order=await f.db.prepare('SELECT * FROM store_orders WHERE id=?').get(result.order_id);assert.equal(JSON.parse(order.bundle_contents)[0].title,'Starter kit');assert.equal(order.amount,1000);
+ await f.store.product('w',bundle.id,{title:bundle.title,description:bundle.description,price:bundle.price,game:'asa',published:true});const result=await f.store.checkout('test-community',{id:'buyer'},{product_id:bundle.id,identifier:'0002aaaaaaaaaaaaaaaaaaaaaaaaaaaa',request_id:randomUUID()});let order=await f.db.prepare('SELECT * FROM store_orders WHERE id=?').get(result.order_id);assert.equal(JSON.parse(order.bundle_contents)[0].title,'Starter kit');assert.equal(order.amount,1000);
  await f.store.product('w',first.id,{title:'Changed source',description:'The source package now has different contents.',game:'asa',price:999,published:false});await f.store.archive('w',second.id);assert.equal(JSON.parse((await f.db.prepare('SELECT bundle_contents FROM store_products WHERE id=?').get(bundle.id)).bundle_contents)[0].title,'Starter kit');assert.equal((await f.store.buyerOrders('test-community',{id:'buyer'}))[0].bundle_contents[1].title,'Building supplies');
 });
 
@@ -60,10 +89,10 @@ test('automatic bundles require compatible, bounded, owner-authorised purchase a
 });
 
 test('Discord shop and order commands are guild-bound and ephemeral without widening admin command permissions',async t=>{
- const f=await fixture(t),p=await f.openStore(),guild='223456789012345678',discord='323456789012345678';await f.db.prepare('UPDATE workspaces SET guild_id=? WHERE id=?').run(guild,'w');await f.db.prepare("UPDATE users SET discord_id=? WHERE id='buyer'").run(discord);const pending=await f.store.checkout('test-community',{id:'buyer'},{product_id:p.id,identifier:'PRIVATE-EOS-ID',request_id:randomUUID()});
+ const f=await fixture(t),p=await f.openStore(),guild='223456789012345678',discord='323456789012345678';await f.db.prepare('UPDATE workspaces SET guild_id=? WHERE id=?').run(guild,'w');await f.db.prepare("UPDATE users SET discord_id=? WHERE id='buyer'").run(discord);const pending=await f.store.checkout('test-community',{id:'buyer'},{product_id:p.id,identifier:'0002aaaaaaaaaaaaaaaaaaaaaaaaaaaa',request_id:randomUUID()});
  const calls=[],interaction={commandName:'shop',guildId:guild,user:{id:discord},deferred:false,inGuild:()=>true,isAutocomplete:()=>false,deferReply:async value=>{calls.push({defer:value});interaction.deferred=true;},editReply:async value=>calls.push(value),reply:async value=>calls.push(value)};
  assert.equal(await handleStoreInteraction(f.db,f.store,interaction,{APP_URL:'https://rookrift.example'}),true);assert.equal(calls[0].defer.flags,MessageFlags.Ephemeral);let message=calls.at(-1);assert.ok(message.embeds[0].toJSON().description.includes('Starter kit'));assert.equal(message.components[0].toJSON().components[0].url,'https://rookrift.example/c/test-community?page=store');assert.deepEqual(message.allowedMentions,{parse:[]});
- calls.length=0;interaction.commandName='orders';interaction.deferred=false;await handleStoreInteraction(f.db,f.store,interaction,{APP_URL:'https://rookrift.example'});assert.ok(calls.at(-1).embeds[0].toJSON().description.includes(pending.order_id));assert.ok(!JSON.stringify(calls.at(-1)).includes('PRIVATE-EOS-ID'));
+ calls.length=0;interaction.commandName='orders';interaction.deferred=false;await handleStoreInteraction(f.db,f.store,interaction,{APP_URL:'https://rookrift.example'});assert.ok(calls.at(-1).embeds[0].toJSON().description.includes(pending.order_id));assert.ok(!JSON.stringify(calls.at(-1)).includes('0002aaaaaaaaaaaaaaaaaaaaaaaaaaaa'));
  interaction.user.id='423456789012345678';calls.length=0;await handleStoreInteraction(f.db,f.store,interaction,{APP_URL:'https://rookrift.example'});assert.ok(calls.at(-1).content.includes('link this Discord account'));assert.ok(!JSON.stringify(calls).includes(pending.order_id));
  const definitions=commandDefinitions();assert.equal(definitions.find(c=>c.name==='rookrift').default_member_permissions,String(PermissionFlagsBits.ManageGuild));for(const name of['shop','orders']){const command=definitions.find(c=>c.name===name);assert.deepEqual(command.contexts,[0]);assert.ok(!command.default_member_permissions);}
 });
@@ -95,7 +124,7 @@ test('coupon prices are snapshotted, bounded, not stacked with sales and never t
  await f.store.growth.savePromotion('w',null,promotionInput({discount_type:'fixed',discount_value:1000}));
  const quote=await f.request(base+'/quote','POST',{product_id:p.id,code:' welcome10 '},'buyer');assert.equal(quote.status,200);assert.equal(quote.body.amount,50);assert.equal(quote.body.discount_amount,450);
  assert.equal((await f.request(base+'/quote','POST',{product_id:p.id,code:'WELCOME10',amount:1},'buyer')).status,400);
- const body={product_id:p.id,identifier:'EOS-BUYER',request_id:randomUUID(),code:'WELCOME10'};assert.equal((await f.request(base+'/checkout','POST',body,'buyer')).status,200);
+ const body={product_id:p.id,identifier:'0002aaaaaaaaaaaaaaaaaaaaaaaaaaaa',request_id:randomUUID(),code:'WELCOME10'};assert.equal((await f.request(base+'/checkout','POST',body,'buyer')).status,200);
  const order=await f.db.prepare('SELECT * FROM store_orders WHERE id=?').get(body.request_id);assert.equal(order.amount,50);assert.equal(order.base_amount,500);assert.equal(order.discount_amount,450);assert.equal(f.sessions.get(order.checkout_session_id).amount_total,50);
  for(const promo of (await f.store.growth.list('w')).promotions)await f.store.growth.archivePromotion('w',promo.id);
  assert.equal((await f.request(base+'/checkout','POST',body,'buyer')).status,200);assert.equal(f.creates,1);
@@ -104,7 +133,7 @@ test('coupon prices are snapshotted, bounded, not stacked with sales and never t
 
 test('concurrent reservations cannot oversell stock or coupon limits, and confirmed cancellation releases a slot',async t=>{
  const f=await fixture(t),p=await f.openStore(),base='/public/communities/test-community/store';await f.store.growth.saveAvailability('w',p.id,availabilityInput({stock_limit:1}));await f.store.growth.savePromotion('w',null,promotionInput({usage_limit:1}));
- const bodies=['buyer','other'].map(who=>({who,body:{product_id:p.id,identifier:'EOS-BUYER',request_id:randomUUID(),code:'WELCOME10'}})),results=await Promise.all(bodies.map(({who,body})=>f.request(base+'/checkout','POST',body,who)));assert.deepEqual(results.map(r=>r.status).sort(),[200,409]);
+ const bodies=['buyer','other'].map(who=>({who,body:{product_id:p.id,identifier:'0002aaaaaaaaaaaaaaaaaaaaaaaaaaaa',request_id:randomUUID(),code:'WELCOME10'}})),results=await Promise.all(bodies.map(({who,body})=>f.request(base+'/checkout','POST',body,who)));assert.deepEqual(results.map(r=>r.status).sort(),[200,409]);
  const index=results.findIndex(r=>r.status===200),winner=bodies[index];assert.equal((await f.request(base+'/checkout','POST',winner.body,winner.who)).status,200);
  assert.equal((await f.request(base+'/orders/'+winner.body.request_id+'/cancel','POST',{},bodies[1-index].who)).status,404);
  assert.equal((await f.request(base+'/orders/'+winner.body.request_id+'/cancel','POST',{},winner.who)).body.payment_status,'expired');
@@ -119,18 +148,18 @@ test('customer and schedule limits apply to free claims and free actions are dur
  // Keep validation focused on reservation/queue behaviour, with the reward
  // adapter already covered by the dedicated purchase delivery tests.
  f.store.setActionsValidator(async(_,__,actions)=>actions);
- const body={product_id:p.id,identifier:'EOS-BUYER',request_id:randomUUID()};const result=await f.request(base+'/checkout','POST',body,'123456789012345678');assert.equal(result.status,200);assert.equal(result.body.free,true);assert.equal(f.creates,0);
+ const body={product_id:p.id,identifier:'0002aaaaaaaaaaaaaaaaaaaaaaaaaaaa',request_id:randomUUID()};const result=await f.request(base+'/checkout','POST',body,'123456789012345678');assert.equal(result.status,200);assert.equal(result.body.free,true);assert.equal(f.creates,0);
  const job=await f.db.prepare('SELECT * FROM store_delivery_jobs WHERE order_id=?').get(body.request_id);assert.equal(job.status,'pending');assert.equal((await f.request(base+'/checkout','POST',body,'123456789012345678')).status,200);
  assert.equal((await f.request(base+'/checkout','POST',{...body,request_id:randomUUID()},'123456789012345678')).status,409);
  await f.db.prepare("UPDATE store_products SET delivery_actions='[]' WHERE id=?").run(p.id);
- const unconfigured=createCommunityStore(f.db,{APP_URL:'http://localhost:3000'}),claim=await unconfigured.checkout('test-community',{id:'other'},{product_id:p.id,identifier:'EOS-OTHER',request_id:randomUUID()});assert.equal(unconfigured.ready,false);assert.equal(claim.free,true);
+ const unconfigured=createCommunityStore(f.db,{APP_URL:'http://localhost:3000'}),claim=await unconfigured.checkout('test-community',{id:'other'},{product_id:p.id,identifier:'0002bbbbbbbbbbbbbbbbbbbbbbbbbbbb',request_id:randomUUID()});assert.equal(unconfigured.ready,false);assert.equal(claim.free,true);
  assert.equal((await unconfigured.fulfill('w',claim.order_id,{note:'Free claim delivered by staff.'},{id:'owner',name:'Owner'})).fulfillment_status,'fulfilled');
  await f.store.growth.saveAvailability('w',p.id,availabilityInput({available_from:Date.now()+600000}));assert.equal((await f.store.publicPage('test-community',null)).products[0].availability.available,false);
  assert.equal((await f.request(base+'/checkout','POST',{...body,request_id:randomUUID()},'123456789012345678')).status,409);
 });
 
 test('unknown checkout responses keep their reservation and cannot be cancelled as if no payment existed',async t=>{
- const f=await fixture(t),p=await f.openStore(),body={product_id:p.id,identifier:'EOS-BUYER',request_id:randomUUID()};await f.store.growth.saveAvailability('w',p.id,availabilityInput({stock_limit:1}));f.loseResponse();
+ const f=await fixture(t),p=await f.openStore(),body={product_id:p.id,identifier:'0002aaaaaaaaaaaaaaaaaaaaaaaaaaaa',request_id:randomUUID()};await f.store.growth.saveAvailability('w',p.id,availabilityInput({stock_limit:1}));f.loseResponse();
  assert.equal((await f.request('/public/communities/test-community/store/checkout','POST',body,'buyer')).status,502);
  assert.equal((await f.request('/public/communities/test-community/store/orders/'+body.request_id+'/cancel','POST',{},'buyer')).status,409);
  assert.equal((await f.store.publicPage('test-community',null)).products[0].availability.remaining,0);
@@ -138,7 +167,7 @@ test('unknown checkout responses keep their reservation and cannot be cancelled 
 });
 
 test('sales analytics and opt-in goals count verified paid purchases and exclude refunds, disputes and free claims',async t=>{
- const f=await fixture(t),p=await f.openStore(),body={product_id:p.id,identifier:'EOS-BUYER',request_id:randomUUID()};await f.store.checkout('test-community',{id:'buyer'},body);let order=await f.db.prepare('SELECT * FROM store_orders WHERE id=?').get(body.request_id);
+ const f=await fixture(t),p=await f.openStore(),body={product_id:p.id,identifier:'0002aaaaaaaaaaaaaaaaaaaaaaaaaaaa',request_id:randomUUID()};await f.store.checkout('test-community',{id:'buyer'},body);let order=await f.db.prepare('SELECT * FROM store_orders WHERE id=?').get(body.request_id);
  await f.store.growth.saveGoal('w',{goal_enabled:true,goal_amount:10000,goal_title:'Keep our worlds running'});assert.equal((await f.store.publicPage('test-community',null)).goal.raised,0);
  f.pay(order.checkout_session_id);await f.store.refreshBuyerOrder('test-community',{id:'buyer'},order.id);
  const analytics=await f.store.growth.analytics('w',7);assert.equal(analytics.orders,1);assert.equal(analytics.amount,500);assert.equal(analytics.series.length,7);assert.equal(analytics.products[0].title,p.title);assert.equal((await f.store.publicPage('test-community',null)).goal.raised,500);
@@ -149,9 +178,9 @@ test('sales analytics and opt-in goals count verified paid purchases and exclude
 
 test('coupon quotas are independent of stock and displayed-price changes require a fresh review',async t=>{
  const f=await fixture(t),p=await f.openStore(),base='/public/communities/test-community/store';await f.store.growth.savePromotion('w',null,promotionInput({usage_limit:1}));
- const results=await Promise.all(['buyer','other'].map(who=>f.request(base+'/checkout','POST',{product_id:p.id,identifier:'EOS-'+who,request_id:randomUUID(),code:'WELCOME10',expected_amount:450,expected_currency:'gbp'},who)));
+ const results=await Promise.all(['buyer','other'].map(who=>f.request(base+'/checkout','POST',{product_id:p.id,identifier:who==='buyer'?'0002aaaaaaaaaaaaaaaaaaaaaaaaaaaa':'0002bbbbbbbbbbbbbbbbbbbbbbbbbbbb',request_id:randomUUID(),code:'WELCOME10',expected_amount:450,expected_currency:'gbp'},who)));
  assert.equal(results.filter(r=>r.status===200).length,1);assert.equal(results.filter(r=>r.status===400).length,1);assert.equal((await f.store.growth.list('w')).promotions[0].used,1);
- const unchanged={product_id:p.id,identifier:'EOS-BUYER',request_id:randomUUID(),expected_amount:499,expected_currency:'gbp'};assert.equal((await f.request(base+'/checkout','POST',unchanged,'buyer')).status,409);assert.equal(await f.db.prepare('SELECT id FROM store_orders WHERE id=?').get(unchanged.request_id),undefined);
+ const unchanged={product_id:p.id,identifier:'0002aaaaaaaaaaaaaaaaaaaaaaaaaaaa',request_id:randomUUID(),expected_amount:499,expected_currency:'gbp'};assert.equal((await f.request(base+'/checkout','POST',unchanged,'buyer')).status,409);assert.equal(await f.db.prepare('SELECT id FROM store_orders WHERE id=?').get(unchanged.request_id),undefined);
  await f.store.settings('w',{...f.settings,payment_provider:'tebex',payment_checkout_url:'https://example.com/checkout/{order_id}'});assert.equal((await f.store.publicPage('test-community',{id:'buyer'})).products[0].price,500);assert.equal((await f.request(base+'/quote','POST',{product_id:p.id,code:'WELCOME10'},'buyer')).status,400);
 });
 
@@ -176,7 +205,7 @@ test('site drafts remain private, publish atomically, reset from publication, an
  draft.pages[0].blocks[0].link_url='javascript:alert(1)';draft.pages[0].blocks[0].link_label='Unsafe';assert.equal((await f.request('/community/site-builder','PUT',draft)).status,400);
 });
 test('store checkout uses server prices, stable reservations and merchant context; payment and delivery are independently verified',async t=>{
- const f=await fixture(t),p=await f.openStore(),body={product_id:p.id,identifier:'EOS-BUYER',request_id:randomUUID()},base='/public/communities/test-community/store';
+ const f=await fixture(t),p=await f.openStore(),body={product_id:p.id,identifier:'0002aaaaaaaaaaaaaaaaaaaaaaaaaaaa',request_id:randomUUID()},base='/public/communities/test-community/store';
  assert.equal((await f.request(base+'/checkout','POST',body,null)).status,401);assert.equal((await f.request(base+'/checkout','POST',body,'buyer',false)).status,403);
  assert.equal((await f.request(base+'/checkout','POST',{...body,amount:1},'buyer')).status,400);
  const results=await Promise.all([f.request(base+'/checkout','POST',body,'buyer'),f.request(base+'/checkout','POST',body,'buyer')]);assert.ok(results.every(r=>r.status===200));assert.equal(f.creates,1);
@@ -191,7 +220,7 @@ test('store checkout uses server prices, stable reservations and merchant contex
  assert.equal((await f.request(base)).status,404);assert.equal((await f.request(base+'/orders','GET',null,'buyer')).body.length,1);
 });
 test('signed Connect webhooks recover uncertain checkouts and reject price/account mismatches; refunds require review',async t=>{
- const f=await fixture(t),p=await f.openStore(),input={product_id:p.id,identifier:'EOS-BUYER',request_id:randomUUID()};f.loseResponse();await assert.rejects(f.store.checkout('test-community',{id:'buyer'},input),/Stripe is unavailable/);
+ const f=await fixture(t),p=await f.openStore(),input={product_id:p.id,identifier:'0002aaaaaaaaaaaaaaaaaaaaaaaaaaaa',request_id:randomUUID()};f.loseResponse();await assert.rejects(f.store.checkout('test-community',{id:'buyer'},input),/Stripe is unavailable/);
  assert.equal((await f.request('/webhooks/community-stripe','POST',{id:'forged'})).status,400);
  let row=await f.db.prepare('SELECT * FROM store_orders WHERE id=?').get(input.request_id);assert.equal(row.checkout_session_id,null);
  const session=f.pay([...f.sessions.keys()][0]);assert.equal(await f.event(session,'checkout.session.completed','acct_wrong'),200);assert.equal((await f.store.manage('w')).orders[0].payment_status,'pending');
@@ -224,7 +253,7 @@ test('workspace creation serializes per-account quotas and rejects guessed forei
 test('store categories and HTTPS images are scoped, public only with visible products and retained in purchase snapshots',async t=>{
  const f=await fixture(t),p=await f.openStore();await f.store.category('w',null,{name:'Building kits',sort_order:3});const category=(await f.store.manage('w')).categories[0];await f.store.product('w',p.id,{title:p.title,description:p.description,price:500,game:'asa',published:true,image_url:'https://example.com/kit.webp',category_id:category.id,sort_order:2});
  const page=await f.store.publicPage(f.site.slug,{id:'buyer'});assert.equal(page.products[0].image_url,'https://example.com/kit.webp');assert.equal(page.categories[0].name,'Building kits');await assert.rejects(f.store.product('w',p.id,{title:p.title,description:p.description,price:500,game:'asa',published:true,image_url:'javascript:alert(1)'}));await assert.rejects(f.store.product('w',p.id,{title:p.title,description:p.description,price:500,game:'asa',published:true,category_id:randomUUID()}),/category/);
- const orderId=randomUUID();await f.store.checkout(f.site.slug,{id:'buyer'},{product_id:p.id,identifier:'PLAYER-001',request_id:orderId});await f.store.removeCategory('w',category.id);const order=(await f.store.buyerOrders(f.site.slug,{id:'buyer'}))[0];assert.equal(order.category_name,'Building kits');assert.equal(order.image_url,'https://example.com/kit.webp');assert.equal((await f.store.manage('w')).products[0].category_id,null);
+ const orderId=randomUUID();await f.store.checkout(f.site.slug,{id:'buyer'},{product_id:p.id,identifier:'0002aaaaaaaaaaaaaaaaaaaaaaaaaaaa',request_id:orderId});await f.store.removeCategory('w',category.id);const order=(await f.store.buyerOrders(f.site.slug,{id:'buyer'}))[0];assert.equal(order.category_name,'Building kits');assert.equal(order.image_url,'https://example.com/kit.webp');assert.equal((await f.store.manage('w')).products[0].category_id,null);
 });
 async function automatedFixture(t,options={}){
  const f=await fixture(t,options),p=await f.openStore(),server=await f.service.addServer('w',{name:'Delivery world',game:'asa',map:'Island',host:'8.8.8.8',port:27020,password:'fixture'});await f.db.prepare("UPDATE servers SET status='online',last_checked=? WHERE id=?").run(Date.now(),server.id);await f.db.prepare("UPDATE workspaces SET guild_id='323456789012345678' WHERE id='w'").run();
