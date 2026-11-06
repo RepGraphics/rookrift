@@ -41,7 +41,7 @@ async function fixture(t){
  const db=await openDatabase(':memory:'),vault=createVault(randomBytes(32).toString('hex')),sent=[],options=[],state={fail:false},password='Correct account password';
  for(const id of ['root','buyer','other']){await db.prepare('INSERT INTO users(id,name,access_token) VALUES(?,?,?)').run(id,id,'');await db.prepare('INSERT INTO local_accounts VALUES(?,?,?,?)').run(id,id+'@example.test',await hashPassword(password),Date.now());await db.prepare('INSERT INTO sessions VALUES(?,?,?,?)').run(hash(id),id,id+'-csrf',Date.now()+600000);}
  await db.prepare("INSERT INTO platform_admins VALUES('root',1)").run();await db.prepare("INSERT INTO workspaces(id,owner_id,name,customer_id,created_at) VALUES('ws','root','Community','cus_test',1)").run();
- const env={APP_URL:'http://localhost:3000'},email=createEmail(db,vault,env,{createTransport:config=>{options.push(config);return{verify:async()=>{state.verified=(state.verified||0)+1;if(state.fail)throw Object.assign(new Error('Contains a password that must not leak'),{code:'EAUTH',command:'AUTH PLAIN',responseCode:535});return true;},sendMail:async message=>{if(state.fail)throw Object.assign(new Error('Contains an SMTP password that must not leak'),{code:'EAUTH'});sent.push(message);return{accepted:[message.to],rejected:[]};},close(){}};}}),service=createService(db,vault,async()=>({output:'OK',players:[],latency:1})),app=createApp({db,vault,service,email,billing:{ready:false,accountHistory:async()=>[]},env}),http=app.listen(0,'127.0.0.1');await once(http,'listening');const url='http://127.0.0.1:'+http.address().port;
+ const env={APP_URL:'http://localhost:3000'},email=createEmail(db,vault,env,{createTransport:config=>{options.push(config);return{verify:async()=>{state.verified=(state.verified||0)+1;if(state.verifyError)throw state.verifyError;if(state.fail)throw Object.assign(new Error('Contains a password that must not leak'),{code:'EAUTH',command:'AUTH PLAIN',responseCode:535});return true;},sendMail:async message=>{if(state.fail)throw Object.assign(new Error('Contains an SMTP password that must not leak'),{code:'EAUTH'});sent.push(message);return{accepted:[message.to],rejected:[]};},close(){}};}}),service=createService(db,vault,async()=>({output:'OK',players:[],latency:1})),app=createApp({db,vault,service,email,billing:{ready:false,accountHistory:async()=>[]},env}),http=app.listen(0,'127.0.0.1');await once(http,'listening');const url='http://127.0.0.1:'+http.address().port;
  t.after(async()=>{http.closeAllConnections();await new Promise(r=>http.close(r));await email.stop();await app.locals.flushAuditWrites();await db.close();});
  const request=async(path,method='GET',body,user='root',csrf=true)=>{const r=await fetch(url+path,{method,headers:{'Content-Type':'application/json',...(user?{Cookie:'rookrift_session='+user}:{}),...(csrf?{Origin:env.APP_URL,'X-CSRF-Token':user+'-csrf'}:{})},...(body?{body:JSON.stringify(body)}:{})});return{status:r.status,body:await r.json(),headers:r.headers};};
  return{db,vault,email,sent,options,state,password,request,url,env};
@@ -62,12 +62,20 @@ test('password recovery gives a generic response, queues encrypted single-use li
 test('connection checks require root access and CSRF, use saved TLS policy and do not send or queue mail',async t=>{
  const f=await fixture(t);await f.email.save(settings);assert.equal((await f.request('/api/platform/email/verify','POST',{},'buyer')).status,403);assert.equal((await f.request('/api/platform/email/verify','POST',{},'root',false)).status,403);
  const verified=await f.request('/api/platform/email/verify','POST',{});assert.equal(verified.status,200);assert.match(verified.body.message,/No email was sent/);assert.equal(f.state.verified,1);assert.equal(f.sent.length,0);assert.equal((await f.db.prepare('SELECT count(*) AS n FROM email_outbox').get()).n,0);
- f.state.fail=true;const failed=await f.request('/api/platform/email/verify','POST',{});assert.equal(failed.status,502);assert.match(failed.body.error,/EAUTH/);assert.ok(!JSON.stringify(failed).includes('must not leak'));
+ f.state.fail=true;const failed=await f.request('/api/platform/email/verify','POST',{});assert.equal(failed.status,200);assert.equal(failed.body.ok,false);assert.match(failed.headers.get('content-type'),/application\/json/);assert.match(failed.body.error,/EAUTH/);assert.ok(!JSON.stringify(failed).includes('must not leak'));
 });
 
 test('automatic STARTTLS compatibility needs explicit acknowledgement and does not weaken required TLS modes',async t=>{
  const f=await fixture(t);assert.equal((await f.request('/api/platform/email','PATCH',{...settings,security:'auto'})).status,400);assert.equal((await f.request('/api/platform/email','PATCH',{...settings,security:'auto',allow_insecure:true})).status,200);await f.email.verify();assert.equal(f.options.at(-1).secure,false);assert.equal(f.options.at(-1).requireTLS,false);assert.equal(f.options.at(-1).tls.rejectUnauthorized,true);
  await f.email.save(settings);await f.email.verify();assert.equal(f.options.at(-1).requireTLS,true);
+});
+
+test('completed SMTP diagnostics keep TLS, DNS and timeout failures out of HTTP gateway errors',async t=>{
+ const f=await fixture(t);assert.equal((await f.request('/api/platform/email/verify','POST',{})).status,409);await f.email.save(settings);
+ for(const [code,command,responseCode] of [['ETLS','STARTTLS',502],['EDNS','CONN',undefined],['ETIMEDOUT','CONN',undefined]]){
+  f.state.verifyError=Object.assign(new Error('private-smtp-password provider reply'),{code,command,responseCode});const result=await f.request('/api/platform/email/verify','POST',{});assert.equal(result.status,200);assert.equal(result.body.ok,false);assert.match(result.body.error,new RegExp(code));assert.ok(!JSON.stringify(result.body).includes('private-smtp-password'));if(code==='ETLS')assert.match(result.body.error,/STARTTLS \/ SMTP 502/);
+ }
+ assert.equal(f.sent.length,0);assert.equal((await f.db.prepare('SELECT count(*) AS n FROM email_outbox').get()).n,0);
 });
 
 test('message expiry clears encrypted content while retaining the original SMTP failure for diagnosis',async t=>{

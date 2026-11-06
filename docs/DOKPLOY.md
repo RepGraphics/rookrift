@@ -136,6 +136,8 @@ Platform administrators can configure SMTP, enable transactional notifications a
 
 Version 0.21.1 adds **Check connection (no email)** in the same screen. Run it after saving to test DNS, connection, TLS and authentication from the Dokploy application container. A STARTTLS rejection before login is a relay capability/security-mode issue. Prefer a verified TLS endpoint; automatic STARTTLS compatibility permits unencrypted credentials and mail and requires explicit acknowledgement. Rebuild/redeploy the application for these controls; there is no database migration, and the update does not change saved SMTP security settings.
 
+Version 0.21.2 prevents completed SMTP diagnostic failures from using HTTP 502. They now return HTTP 200 JSON with a failed result, preserving the SMTP explanation through proxies that replace 5xx response bodies. Redeploy the application and refresh the admin page before checking again. SMTP security settings are unchanged, and no database migration or environment edits are needed.
+
 The sign-in page now verifies email/password before displaying an authenticator code prompt. Existing authenticator accounts retain their secrets. Password recovery is available at `/forgot-password`; links last one hour and a successful reset revokes sessions and pending sign-in challenges.
 
 ## Release 0.13.1 account pictures

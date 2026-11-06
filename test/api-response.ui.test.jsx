@@ -22,3 +22,11 @@ test('the admin mail test shows a readable proxy error and remains available for
  const user=userEvent.setup();render(<AdminApp/>);await user.click(await screen.findByRole('button',{name:'Global settings'}));await user.click(await screen.findByRole('button',{name:'Send test to my account'}));
  expect((await screen.findByRole('alert')).textContent).toContain('HTTP 504');expect(screen.getByRole('button',{name:'Send test to my account'}).disabled).toBe(false);expect(fetch.mock.calls.filter(([path])=>path.endsWith('/test'))).toHaveLength(1);expect(screen.queryByText(/JSON.parse/)).toBeNull();
 });
+
+test('a completed SMTP failure renders its diagnostic through the admin response helper without a gateway error',async()=>{
+ const settings=Object.fromEntries(['discord_client_id','discord_client_secret','discord_bot_token'].map(key=>[key,{configured:false}]));
+ const email={host:'smtp.example.test',port:587,security:'starttls',username:'',from:'mail@example.test',enabled:true,name:'Rookrift',configured:true,counts:[],recent:[]};
+ let checks=0;const fetch=vi.fn(async path=>({ok:true,status:200,json:async()=>path.endsWith('/verify')?++checks===1?{ok:false,error:'The SMTP server rejected STARTTLS before login. (ETLS / STARTTLS / SMTP 502)'}:{ok:true,message:'Connection verified. No email was sent.'}:path==='/api/platform/email'?email:{csrf:'fixture',users:[],workspaces:[],settings}}));vi.stubGlobal('fetch',fetch);
+ const user=userEvent.setup();render(<AdminApp/>);await user.click(await screen.findByRole('button',{name:'Global settings'}));await user.click(await screen.findByRole('button',{name:'Check connection (no email)'}));
+ expect((await screen.findByRole('alert')).textContent).toContain('ETLS / STARTTLS / SMTP 502');expect(screen.queryByText(/service or its proxy is unavailable/)).toBeNull();expect(screen.getByRole('button',{name:'Check connection (no email)'}).disabled).toBe(false);await user.click(screen.getByRole('button',{name:'Check connection (no email)'}));expect((await screen.findByRole('status')).textContent).toContain('No email was sent');expect(screen.queryByRole('alert')).toBeNull();expect(fetch.mock.calls.some(([path])=>path.endsWith('/test'))).toBe(false);
+});

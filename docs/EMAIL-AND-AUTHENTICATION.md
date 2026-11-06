@@ -1,5 +1,7 @@
 # Email delivery and account screens
 
+Release 0.21.2 returns completed SMTP checks as HTTP 200 JSON with `ok: true` or `ok: false` and a safe error. A failed SMTP handshake is a diagnostic result; it no longer uses HTTP 502, which a reverse proxy may replace with an HTML gateway page. The admin screen displays failed results as errors and leaves the check available for an explicit retry. Authentication, permission, configuration and rate-limit failures retain their normal HTTP statuses. Genuine web/proxy outages still show the generic gateway error.
+
 Release 0.21.1 adds a connection/authentication check that sends no email, safe SMTP failure stages/codes, preserved errors after message expiry, and explicitly acknowledged automatic STARTTLS compatibility. Existing connections still require encryption. No schema change is needed. Release 0.20.1 fixed SMTP test parsing errors with queued delivery and readable non-JSON proxy/rate-limit errors in administration.
 
 Release 0.13 adds a shared responsive account layout, a public `/forgot-password` route, a clear recovery success screen and password confirmation when choosing a new password. Registration and sign-in retain selected plans and approved community return links. Dark/light mode and legal-policy links are available throughout. The hosted browser demo never creates accounts, resets passwords or sends email.
@@ -19,7 +21,7 @@ Environment fallbacks are `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURITY` (`starttls`,
 ## Connection security and provider differences
 
 - **STARTTLS** requires an encrypted upgrade before authentication. An `ETLS / STARTTLS / SMTP 502` error means the relay rejected that command before login; changing the password will not fix that stage.
-- **TLS** starts an encrypted connection immediately. Use only the endpoint and port confirmed by the provider. A timeout from one machine does not establish connectivity from the Dokploy host.
+- **Implicit TLS** starts an encrypted connection immediately, usually on port 465. A provider or Pterodactyl setting labelled TLS on port 587 normally corresponds to STARTTLS in Rookrift. Use only the endpoint and port confirmed by the provider. A timeout from one machine does not establish connectivity from the Dokploy host.
 - **Automatic STARTTLS** upgrades when advertised by the server, but may otherwise transmit credentials and email without encryption. Saving this mode in administration requires its explicit acknowledgement checkbox. API clients must include `allow_insecure: true`; choosing `SMTP_SECURITY=auto` in deployment configuration is also an explicit operator choice. There is no automatic downgrade from the other modes. Certificate verification stays enabled whenever TLS is used.
 
 Prefer enabling TLS on the relay or using a verified encrypted submission endpoint. Two applications can behave differently with the same host, port and credentials when one permits unencrypted fallback and the other requires STARTTLS. Do not disable certificate validation to work around a server that does not offer STARTTLS.
