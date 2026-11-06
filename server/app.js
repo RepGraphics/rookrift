@@ -124,6 +124,7 @@ export function createApp({
   app.post('/api/webhooks/community-stripe',express.raw({type:'application/json',limit:'1mb'}),async(req,res)=>{await store.webhook(req.body,req.headers['stripe-signature']);res.json({received:true});});
   app.use('/api/community/site',express.json({limit:'5mb'}));
   app.use('/api/account/profile',express.json({limit:'5mb'}));
+  app.use('/api/community/store/products',express.json({limit:'5mb'}));
   app.use(express.json({
     limit: '64kb'
   }), cookieParser());
@@ -319,6 +320,8 @@ export function createApp({
   app.get('/api/public/communities/:slug',async(req,res)=>res.json(await community.publicPage(req.params.slug,req.visitor)));
   app.get('/api/public/communities/:slug/store',async(req,res)=>res.json(await store.publicPage(req.params.slug,req.visitor)));
   app.get('/api/public/communities/:slug/store/orders',async(req,res)=>res.json(await store.buyerOrders(req.params.slug,req.visitor)));
+  app.post('/api/public/communities/:slug/store/quote',communityWrites,async(req,res)=>res.json(await store.quote(req.params.slug,req.visitor,req.body)));
+  app.post('/api/public/communities/:slug/store/orders/:id/cancel',communityWrites,async(req,res)=>res.json(await store.cancelBuyerOrder(req.params.slug,req.visitor,req.params.id)));
   app.get('/api/public/communities/:slug/member',async(req,res)=>res.json(await members.view(req.params.slug,req.visitor)));
   app.patch('/api/public/communities/:slug/member',communityWrites,async(req,res)=>res.json(await members.updateProfile(req.params.slug,req.visitor,req.body)));
   app.post('/api/public/communities/:slug/member/link-code',communityWrites,async(req,res)=>res.json(await members.createLinkCode(req.params.slug,req.visitor,req.body?.game,req.body?.server_id)));
@@ -424,6 +427,14 @@ export function createApp({
   app.post('/api/community/store/orders/:id/delivery/retry',async(req,res)=>res.json(await delivery.retry(req.workspace.id,req.params.id)));
   app.post('/api/community/store/orders/:id/delivery/:job/resolve',async(req,res)=>res.json(await delivery.resolve(req.workspace.id,req.params.id,req.params.job,req.body,req.user)));
   app.get('/api/community/store',async(req,res)=>res.json(await store.manage(req.workspace.id)));
+  app.get('/api/community/store/promotions',async(req,res)=>res.json(await store.growth.list(req.workspace.id)));
+  app.post('/api/community/store/promotions',async(req,res)=>res.status(201).json(await store.growth.savePromotion(req.workspace.id,null,req.body)));
+  app.patch('/api/community/store/promotions/:id',async(req,res)=>res.json(await store.growth.savePromotion(req.workspace.id,req.params.id,req.body)));
+  app.delete('/api/community/store/promotions/:id',async(req,res)=>res.json(await store.growth.archivePromotion(req.workspace.id,req.params.id)));
+  app.patch('/api/community/store/products/:id/availability',async(req,res)=>res.json(await store.growth.saveAvailability(req.workspace.id,req.params.id,req.body)));
+  app.get('/api/community/store/analytics',async(req,res)=>res.json(await store.growth.analytics(req.workspace.id,Number(req.query.days||30))));
+  app.put('/api/community/store/goal',async(req,res)=>res.json(await store.growth.saveGoal(req.workspace.id,req.body)));
+  app.post('/api/community/store/orders/:id/cancel',async(req,res)=>res.json(await store.cancelOrder(req.workspace.id,req.params.id)));
   app.put('/api/community/store/settings',async(req,res)=>res.json(await store.settings(req.workspace.id,req.body)));
   app.post('/api/community/store/products',async(req,res)=>res.status(201).json(await store.product(req.workspace.id,null,req.body)));
   app.patch('/api/community/store/products/:id',async(req,res)=>res.json(await store.product(req.workspace.id,req.params.id,req.body)));

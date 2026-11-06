@@ -26,7 +26,7 @@ export function createAccountDeletion(db,{billing,service,account,store,env=proc
   // account recipient and stop unsent automatic actions before removing logins.
   await db.prepare("UPDATE store_delivery_jobs SET status='cancelled',detail='Account or community closed before automatic delivery.',payload='{}',updated_at=? WHERE status IN ('pending','blocked','uncertain') AND order_id IN (SELECT id FROM store_orders WHERE user_id=? OR workspace_id IN (SELECT id FROM workspaces WHERE owner_id=?))").run(Date.now(),user.id,user.id);
   await db.prepare("UPDATE store_delivery_jobs SET payload='{}' WHERE order_id IN (SELECT id FROM store_orders WHERE user_id=?)").run(user.id);
-  await db.prepare("UPDATE store_orders SET fulfillment_status=CASE WHEN payment_status='paid' AND fulfillment_status<>'fulfilled' THEN 'review_required' ELSE fulfillment_status END,identifier='',discord_user_id=NULL,delivery_actions='[]',checkout_url=NULL,user_id=?,updated_at=? WHERE user_id=?").run(DELETED,Date.now(),user.id);
+  await db.prepare("UPDATE store_orders SET fulfillment_status=CASE WHEN payment_status='paid' AND fulfillment_status<>'fulfilled' THEN 'review_required' ELSE fulfillment_status END,identifier='',discord_user_id=NULL,delivery_actions='[]',checkout_url=NULL,discount_label='',discount_code='',user_id=?,updated_at=? WHERE user_id=?").run(DELETED,Date.now(),user.id);
   await db.prepare("UPDATE store_orders SET fulfilled_by='Deleted member' WHERE fulfilled_by=?").run(user.id);
   await db.prepare("UPDATE staff_audit SET user_id=?,actor='Deleted member' WHERE user_id=?").run(DELETED,user.id);
   await db.prepare("UPDATE player_notes SET author_id=?,author_name='Deleted member' WHERE author_id=?").run(DELETED,user.id);
@@ -34,13 +34,14 @@ export function createAccountDeletion(db,{billing,service,account,store,env=proc
   await db.prepare('DELETE FROM community_applications WHERE user_id=?').run(user.id);await db.prepare('DELETE FROM community_rsvps WHERE user_id=?').run(user.id);await db.prepare('DELETE FROM workspace_members WHERE user_id=?').run(user.id);
   const discord=user.discord_id||(/^\d{17,20}$/.test(user.id)?user.id:null);if(discord)await db.prepare('DELETE FROM team_invitations WHERE discord_user_id=?').run(discord);
   for(const ws of workspaces){
-   await db.prepare("UPDATE store_orders SET fulfillment_status=CASE WHEN payment_status='paid' AND fulfillment_status<>'fulfilled' THEN 'review_required' ELSE fulfillment_status END,delivery_actions='[]',checkout_url=NULL WHERE workspace_id=?").run(ws.id);
+   await db.prepare("UPDATE store_orders SET fulfillment_status=CASE WHEN payment_status='paid' AND fulfillment_status<>'fulfilled' THEN 'review_required' ELSE fulfillment_status END,delivery_actions='[]',checkout_url=NULL,discount_label='',discount_code='' WHERE workspace_id=?").run(ws.id);
    await db.prepare("UPDATE store_delivery_jobs SET payload='{}' WHERE workspace_id=?").run(ws.id);
+   await db.prepare('DELETE FROM store_promotions WHERE workspace_id=?').run(ws.id);
    await db.prepare("UPDATE store_products SET published=0,archived=1,title='Archived product',description='',image_url='',category_id=NULL,delivery_actions='[]' WHERE workspace_id=?").run(ws.id);
    await db.prepare('DELETE FROM servers WHERE workspace_id=?').run(ws.id);
    for(const table of ['config_templates','player_profiles','community_posts','community_events','community_applications','community_game_accounts','community_members','community_link_codes','notifications','activity','maintenance_windows','announcement_templates','staff_audit','workspace_members','team_invitations','store_categories','billing_checkout_attempts'])await db.prepare('DELETE FROM '+table+' WHERE workspace_id=?').run(ws.id);
    await db.prepare("UPDATE community_sites SET title='Closed community',summary='',rules='',discord_url='',logo_url='',enabled=0,applications_open=0,join_requests_open=0,staff_applications_open=0,questions='[]',join_questions='[]',staff_questions='[]',server_ids='[]',builder_draft='{}',builder_published='{}',builder_published_at=NULL WHERE workspace_id=?").run(ws.id);
-   await db.prepare("UPDATE community_stores SET enabled=0,charges_enabled=0,delivery_note='',refund_policy='',payment_checkout_url='' WHERE workspace_id=?").run(ws.id);
+   await db.prepare("UPDATE community_stores SET enabled=0,charges_enabled=0,delivery_note='',refund_policy='',payment_checkout_url='',goal_enabled=0,goal_title='' WHERE workspace_id=?").run(ws.id);
    await db.prepare('DELETE FROM session_workspaces WHERE workspace_id=?').run(ws.id);
    await db.prepare("UPDATE workspaces SET owner_id=?,name='Closed workspace',plan='scout',subscription_status='canceled',guild_id=NULL,guild_name=NULL,alert_channel_id=NULL,alerts_enabled=0,ban_sharing_enabled=0,ban_public_name='',closed_at=? WHERE id=?").run(DELETED,Date.now(),ws.id);
   }

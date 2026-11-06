@@ -143,10 +143,6 @@ export function createBilling(db, env = process.env, injectedStripe, paypal) {
           // Let Stripe offer every payment method enabled for this account,
           // including cards, wallets, bank methods, and buy-now-pay-later
           // options where the customer and currency are eligible.
-          automatic_payment_methods: {
-            enabled: true,
-            allow_redirects: 'always'
-          },
           success_url: `${env.APP_URL}/dashboard?billing=success`,
           cancel_url: `${env.APP_URL}/dashboard?billing=canceled`
         });

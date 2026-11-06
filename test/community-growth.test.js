@@ -18,8 +18,9 @@ async function fixture(t,options={}){
  await db.prepare("INSERT INTO workspaces(id,owner_id,plan,subscription_status,created_at) VALUES('w','owner','cluster','active',1)").run();
  for(const [id,role,scope]of [['admin','admin',null],['mod','moderator',null],['scoped','admin','[]']])await db.prepare("INSERT INTO workspace_members VALUES(?,'w',?,?,?,1)").run(randomUUID(),id,role,scope);
  const stripe={webhooks:new Stripe('sk_test_fixture').webhooks,accounts:{create:async()=>({id:'acct_fixture'}),retrieve:async()=>({id:'acct_fixture',charges_enabled:true})},accountLinks:{create:async()=>({url:'https://connect.stripe.com/setup/test'})},checkout:{sessions:{
-  create:async(input,options)=>{creates++;assert.equal(options.stripeAccount,'acct_fixture');assert.equal(options.idempotencyKey,'community-order-'+input.client_reference_id);let s=[...sessions.values()].find(s=>s.client_reference_id===input.client_reference_id);if(!s){s={id:'cs_'+input.client_reference_id,mode:'payment',client_reference_id:input.client_reference_id,metadata:input.metadata,amount_total:input.line_items[0].price_data.unit_amount,currency:input.line_items[0].price_data.currency,payment_status:'unpaid',status:'open',url:'https://checkout.stripe.com/c/pay/test'};sessions.set(s.id,s);}if(uncertain){uncertain=false;throw new Error('Lost response after Stripe accepted checkout');}return s;},
-  retrieve:async(id,params,options)=>{assert.equal(options.stripeAccount,'acct_fixture');return sessions.get(id);}
+  create:async(input,options)=>{creates++;assert.equal(input.automatic_payment_methods,undefined,'Checkout uses dashboard-configured methods; PaymentIntent-only fields are invalid here.');assert.equal(options.stripeAccount,'acct_fixture');assert.equal(options.idempotencyKey,'community-order-'+input.client_reference_id);let s=[...sessions.values()].find(s=>s.client_reference_id===input.client_reference_id);if(!s){s={id:'cs_'+input.client_reference_id,mode:'payment',client_reference_id:input.client_reference_id,metadata:input.metadata,amount_total:input.line_items[0].price_data.unit_amount,currency:input.line_items[0].price_data.currency,payment_status:'unpaid',status:'open',url:'https://checkout.stripe.com/c/pay/test'};sessions.set(s.id,s);}if(uncertain){uncertain=false;throw new Error('Lost response after Stripe accepted checkout');}return s;},
+  retrieve:async(id,params,options)=>{assert.equal(options.stripeAccount,'acct_fixture');return sessions.get(id);},
+  expire:async(id)=>{const session=sessions.get(id);if(session.status!=='open')throw new Error('Cannot expire a completed session');session.status='expired';return session;}
  }}};
  const env={APP_URL:'http://localhost:3000',STRIPE_CONNECT_WEBHOOK_SECRET:'whsec_community_fixture'},store=createCommunityStore(db,env,stripe),service=createService(db,vault,async(server,vault,action,message)=>{if(action==='purchase'){commands.push({server_id:server.id,command:message});if(options.failCommand)throw new Error('Lost RCON reply');}return{output:'OK',players:[],latency:1};}),community=createCommunity(db);
  const site={slug:'test-community',title:'Test Community',summary:'Welcome',rules:'Be kind.',discord_url:'',enabled:true,join_requests_open:true,staff_applications_open:false,join_questions:['Why join us?'],staff_questions:['What can you offer the team?'],server_ids:[]};await community.saveSite('w',site);
@@ -33,6 +34,90 @@ async function fixture(t,options={}){
  async function event(object,type='checkout.session.completed',account='acct_fixture',id=randomUUID()) {const body=JSON.stringify({id,type,account,data:{object}}),signature=stripe.webhooks.generateTestHeaderString({payload:body,secret:env.STRIPE_CONNECT_WEBHOOK_SECRET});const r=await fetch('http://127.0.0.1:'+http.address().port+'/api/webhooks/community-stripe',{method:'POST',headers:{'Content-Type':'application/json','stripe-signature':signature},body});return r.status;}
  return{db,vault,service,store,community,site,request,openStore,settings,sessions,pay,event,commands,awards,mailed,delivery:app.locals.delivery,get creates(){return creates;},loseResponse(){uncertain=true;}};
 }
+
+const promotionInput=(extra={})=>({name:'Welcome discount',kind:'coupon',code:'WELCOME10',discount_type:'percent',discount_value:10,minimum_amount:0,product_ids:[],category_ids:[],starts_at:null,ends_at:null,usage_limit:null,customer_limit:null,enabled:true,...extra});
+const availabilityInput=(extra={})=>({stock_limit:null,customer_limit:null,available_from:null,available_until:null,...extra});
+
+test('store promotions validate scope, roles, CSRF and unique codes without exposing codes publicly',async t=>{
+ const f=await fixture(t),p=await f.openStore(),path='/community/store/promotions';
+ for(const who of ['mod','scoped'])assert.equal((await f.request(path,'POST',promotionInput(),who)).status,403);
+ assert.equal((await f.request(path,'POST',promotionInput(),'owner',false)).status,403);
+ assert.equal((await f.request(path,'POST',promotionInput({discount_value:96}))).status,400);
+ assert.equal((await f.request(path,'POST',promotionInput({product_ids:[randomUUID()]}))).status,404);
+ assert.equal((await f.request(path,'POST',promotionInput({code:' welcome10 '}),'admin')).status,201);
+ assert.equal((await f.request(path,'POST',promotionInput())).status,409);
+ const page=(await f.request('/public/communities/test-community/store','GET',null,null)).body;assert.ok(!JSON.stringify(page).includes('WELCOME10'));
+ const promo=(await f.store.growth.list('w')).promotions[0];assert.equal(promo.code,'WELCOME10');assert.equal((await f.request(path+'/'+promo.id,'PATCH',promotionInput({code:'DIFFERENT'}))).status,400);
+ await f.store.growth.archivePromotion('w',promo.id);assert.equal((await f.store.growth.list('w')).promotions.length,0);assert.equal((await f.request(path,'POST',promotionInput())).status,409);
+});
+
+test('coupon prices are snapshotted, bounded, not stacked with sales and never trusted from the browser',async t=>{
+ const f=await fixture(t),p=await f.openStore(),base='/public/communities/test-community/store';
+ await f.store.growth.savePromotion('w',null,promotionInput({kind:'sale',code:'',name:'Weekend sale',discount_value:20}));
+ assert.equal((await f.store.publicPage('test-community',null)).products[0].price,400);
+ assert.equal((await f.store.publicPage('test-community',null)).products[0].base_price,500);
+ await f.store.growth.savePromotion('w',null,promotionInput({discount_type:'fixed',discount_value:1000}));
+ const quote=await f.request(base+'/quote','POST',{product_id:p.id,code:' welcome10 '},'buyer');assert.equal(quote.status,200);assert.equal(quote.body.amount,50);assert.equal(quote.body.discount_amount,450);
+ assert.equal((await f.request(base+'/quote','POST',{product_id:p.id,code:'WELCOME10',amount:1},'buyer')).status,400);
+ const body={product_id:p.id,identifier:'EOS-BUYER',request_id:randomUUID(),code:'WELCOME10'};assert.equal((await f.request(base+'/checkout','POST',body,'buyer')).status,200);
+ const order=await f.db.prepare('SELECT * FROM store_orders WHERE id=?').get(body.request_id);assert.equal(order.amount,50);assert.equal(order.base_amount,500);assert.equal(order.discount_amount,450);assert.equal(f.sessions.get(order.checkout_session_id).amount_total,50);
+ for(const promo of (await f.store.growth.list('w')).promotions)await f.store.growth.archivePromotion('w',promo.id);
+ assert.equal((await f.request(base+'/checkout','POST',body,'buyer')).status,200);assert.equal(f.creates,1);
+ assert.equal((await f.request(base+'/checkout','POST',{...body,code:''},'buyer')).status,409);
+});
+
+test('concurrent reservations cannot oversell stock or coupon limits, and confirmed cancellation releases a slot',async t=>{
+ const f=await fixture(t),p=await f.openStore(),base='/public/communities/test-community/store';await f.store.growth.saveAvailability('w',p.id,availabilityInput({stock_limit:1}));await f.store.growth.savePromotion('w',null,promotionInput({usage_limit:1}));
+ const bodies=['buyer','other'].map(who=>({who,body:{product_id:p.id,identifier:'EOS-BUYER',request_id:randomUUID(),code:'WELCOME10'}})),results=await Promise.all(bodies.map(({who,body})=>f.request(base+'/checkout','POST',body,who)));assert.deepEqual(results.map(r=>r.status).sort(),[200,409]);
+ const index=results.findIndex(r=>r.status===200),winner=bodies[index];assert.equal((await f.request(base+'/checkout','POST',winner.body,winner.who)).status,200);
+ assert.equal((await f.request(base+'/orders/'+winner.body.request_id+'/cancel','POST',{},bodies[1-index].who)).status,404);
+ assert.equal((await f.request(base+'/orders/'+winner.body.request_id+'/cancel','POST',{},winner.who)).body.payment_status,'expired');
+ assert.equal((await f.request(base+'/checkout','POST',bodies[1-index].body,bodies[1-index].who)).status,200);
+});
+
+test('customer and schedule limits apply to free claims and free actions are durably enqueued without Stripe',async t=>{
+ const f=await fixture(t),p=await f.openStore(),base='/public/communities/test-community/store';
+ await f.store.product('w',p.id,{title:p.title,description:p.description,game:p.game,price:0,published:true});await f.store.growth.saveAvailability('w',p.id,availabilityInput({customer_limit:1}));
+ await f.db.prepare("UPDATE store_products SET delivery_actions=? WHERE id=?").run(JSON.stringify([{type:'discord_role',guild_id:'123456789012345678',role_id:'223456789012345670'}]),p.id);
+ await f.db.prepare("UPDATE workspaces SET guild_id='123456789012345678' WHERE id='w'").run();
+ // Keep validation focused on reservation/queue behaviour, with the reward
+ // adapter already covered by the dedicated purchase delivery tests.
+ f.store.setActionsValidator(async(_,__,actions)=>actions);
+ const body={product_id:p.id,identifier:'EOS-BUYER',request_id:randomUUID()};const result=await f.request(base+'/checkout','POST',body,'123456789012345678');assert.equal(result.status,200);assert.equal(result.body.free,true);assert.equal(f.creates,0);
+ const job=await f.db.prepare('SELECT * FROM store_delivery_jobs WHERE order_id=?').get(body.request_id);assert.equal(job.status,'pending');assert.equal((await f.request(base+'/checkout','POST',body,'123456789012345678')).status,200);
+ assert.equal((await f.request(base+'/checkout','POST',{...body,request_id:randomUUID()},'123456789012345678')).status,409);
+ await f.db.prepare("UPDATE store_products SET delivery_actions='[]' WHERE id=?").run(p.id);
+ const unconfigured=createCommunityStore(f.db,{APP_URL:'http://localhost:3000'}),claim=await unconfigured.checkout('test-community',{id:'other'},{product_id:p.id,identifier:'EOS-OTHER',request_id:randomUUID()});assert.equal(unconfigured.ready,false);assert.equal(claim.free,true);
+ assert.equal((await unconfigured.fulfill('w',claim.order_id,{note:'Free claim delivered by staff.'},{id:'owner',name:'Owner'})).fulfillment_status,'fulfilled');
+ await f.store.growth.saveAvailability('w',p.id,availabilityInput({available_from:Date.now()+600000}));assert.equal((await f.store.publicPage('test-community',null)).products[0].availability.available,false);
+ assert.equal((await f.request(base+'/checkout','POST',{...body,request_id:randomUUID()},'123456789012345678')).status,409);
+});
+
+test('unknown checkout responses keep their reservation and cannot be cancelled as if no payment existed',async t=>{
+ const f=await fixture(t),p=await f.openStore(),body={product_id:p.id,identifier:'EOS-BUYER',request_id:randomUUID()};await f.store.growth.saveAvailability('w',p.id,availabilityInput({stock_limit:1}));f.loseResponse();
+ assert.equal((await f.request('/public/communities/test-community/store/checkout','POST',body,'buyer')).status,502);
+ assert.equal((await f.request('/public/communities/test-community/store/orders/'+body.request_id+'/cancel','POST',{},'buyer')).status,409);
+ assert.equal((await f.store.publicPage('test-community',null)).products[0].availability.remaining,0);
+ assert.equal((await f.request('/public/communities/test-community/store/checkout','POST',body,'buyer')).status,200);
+});
+
+test('sales analytics and opt-in goals count verified paid purchases and exclude refunds, disputes and free claims',async t=>{
+ const f=await fixture(t),p=await f.openStore(),body={product_id:p.id,identifier:'EOS-BUYER',request_id:randomUUID()};await f.store.checkout('test-community',{id:'buyer'},body);let order=await f.db.prepare('SELECT * FROM store_orders WHERE id=?').get(body.request_id);
+ await f.store.growth.saveGoal('w',{goal_enabled:true,goal_amount:10000,goal_title:'Keep our worlds running'});assert.equal((await f.store.publicPage('test-community',null)).goal.raised,0);
+ f.pay(order.checkout_session_id);await f.store.refreshBuyerOrder('test-community',{id:'buyer'},order.id);
+ const analytics=await f.store.growth.analytics('w',7);assert.equal(analytics.orders,1);assert.equal(analytics.amount,500);assert.equal(analytics.series.length,7);assert.equal(analytics.products[0].title,p.title);assert.equal((await f.store.publicPage('test-community',null)).goal.raised,500);
+ const session=f.sessions.get(order.checkout_session_id);session.payment_intent.latest_charge.amount_refunded=250;await f.store.refreshBuyerOrder('test-community',{id:'buyer'},order.id);assert.equal((await f.store.growth.analytics('w',7)).amount,0);assert.equal((await f.store.publicPage('test-community',null)).goal.raised,0);
+ assert.equal((await f.request('/community/store/analytics?days=7','GET',null,'mod')).status,403);assert.equal((await f.request('/community/store/analytics?days=8')).status,400);
+ await f.store.growth.saveGoal('w',{goal_enabled:false,goal_amount:10000,goal_title:'Keep our worlds running'});assert.equal((await f.store.publicPage('test-community',null)).goal,null);
+});
+
+test('coupon quotas are independent of stock and displayed-price changes require a fresh review',async t=>{
+ const f=await fixture(t),p=await f.openStore(),base='/public/communities/test-community/store';await f.store.growth.savePromotion('w',null,promotionInput({usage_limit:1}));
+ const results=await Promise.all(['buyer','other'].map(who=>f.request(base+'/checkout','POST',{product_id:p.id,identifier:'EOS-'+who,request_id:randomUUID(),code:'WELCOME10',expected_amount:450,expected_currency:'gbp'},who)));
+ assert.equal(results.filter(r=>r.status===200).length,1);assert.equal(results.filter(r=>r.status===400).length,1);assert.equal((await f.store.growth.list('w')).promotions[0].used,1);
+ const unchanged={product_id:p.id,identifier:'EOS-BUYER',request_id:randomUUID(),expected_amount:499,expected_currency:'gbp'};assert.equal((await f.request(base+'/checkout','POST',unchanged,'buyer')).status,409);assert.equal(await f.db.prepare('SELECT id FROM store_orders WHERE id=?').get(unchanged.request_id),undefined);
+ await f.store.settings('w',{...f.settings,payment_provider:'tebex',payment_checkout_url:'https://example.com/checkout/{order_id}'});assert.equal((await f.store.publicPage('test-community',{id:'buyer'})).products[0].price,500);assert.equal((await f.request(base+'/quote','POST',{product_id:p.id,code:'WELCOME10'},'buyer')).status,400);
+});
 
 test('join requests and staff applications close independently and retain their separate review queues',async t=>{
  const f=await fixture(t),base='/public/communities/test-community',page=(await f.request(base)).body;

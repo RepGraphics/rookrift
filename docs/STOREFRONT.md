@@ -4,7 +4,7 @@ Release 0.10 adds product images, categories, catalog sorting and ordered purcha
 
 ## Enable payments on the service
 
-Configure Stripe Connect for your platform, then set these in Dokploy's application environment (or encrypted **Platform admin → Global settings → Community store payments**, followed by a restart):
+Configure Stripe Connect for your platform, then set these in Dokploy's application environment (or encrypted **Platform admin → Global settings → Community payments**, followed by a restart):
 
 ```dotenv
 STRIPE_CONNECT_SECRET_KEY=
@@ -58,3 +58,7 @@ Paid manual orders enter **Needs delivery or review**. Staff arrange delivery, t
 Refunds are issued in the merchant's Stripe dashboard. Refund/partial-refund/dispute events cancel unsent actions and flag orders for review, preserving delivery evidence. An action already sent cannot be recalled. Items and Discord roles are **not automatically revoked**; staff decide any reversal, including whether a role predated the purchase or belongs to another entitlement. Recurring supporter subscriptions, timed perks, automatic expiry and automatic reversals remain future work. Paid/pending orders with saved Checkout sessions are periodically reconciled for 90 days; webhook deduplication records are retained for 90 days. The management queue shows up to 200 orders, prioritising undelivered/review records. Buyers see only their own latest 50 orders, including after the storefront is disabled. An unpublished community's retained order history is available through its authenticated order API.
 
 Card details are handled by Stripe. Public store responses exclude command templates, target fingerprints, role/guild IDs, Stripe account/session identifiers and private staff/user data. Hosted payment URLs are restricted to Stripe's checkout/onboarding domains. Raw webhook bodies are signature-verified before processing. No real charge, merchant onboarding, game command or role change is made by the demo.
+
+## Promotions and growth (0.15)
+
+See [store growth](STORE-GROWTH.md) for coupon codes, scheduled sales, availability/claim limits, original checkout resumption/cancellation, aggregate analytics/CSV and opt-in monthly funding goals. The catalog and orders now snapshot base prices, discounts and first verified payment time. Free claims enter the same durable delivery queue without requiring configured Stripe credentials. Paid products require at least 0.50. Schema 19 is required. These additions do not add recurring supporter billing, gift cards or a verified external-provider payment API.

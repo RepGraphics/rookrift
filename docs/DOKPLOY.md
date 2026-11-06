@@ -147,3 +147,7 @@ No migration is required. Workspace Settings now supports reconnecting email-bas
 ## Release 0.14 account and settings navigation
 
 No migration or new environment variables are required. Rebuild the application image and restart the app container. Community account changes and logout use the personal API without provisioning workspaces. Profile/security requests load independently of invoice providers. Platform settings now save by integration category, with one selected subscription provider visible. SMTP remains live-applied; Discord/payment credential changes still require a restart and environment variables override stored credentials. See [account experience](ACCOUNT-EXPERIENCE.md).
+
+## Release 0.15 store growth
+
+Back up the active PostgreSQL database, then rebuild/restart the application. Schema 19 adds promotions, product purchase limits and order price/payment-time snapshots. Existing orders and actions are retained. No new environment variables are required. A rollback to the previous release requires restoring its matching schema-18 database backup. See [store growth](STORE-GROWTH.md) for payment-provider scope, reservations and reporting semantics.

@@ -1,3 +1,4 @@
+import {demoStoreGrowthRequest,decorateDemoStore,ensureDemoGrowth} from './demo-store-growth';
 import {avatarSource} from '../shared/avatar';
 import {deliveryIdentifier,renderPurchaseCommand} from '../shared/store-delivery';
 import {publicDelivery,parseActions} from './demo-store-delivery';
@@ -9,6 +10,7 @@ export function ensureDemoCommunity(data){
   data.community.member_accounts??=[];data.community.link_requests??=[];
   data.community.design??={draft:structuredClone(DEFAULT_DESIGN),published:structuredClone(DEFAULT_DESIGN),published_at:null};
   data.community.store??={settings:{enabled:false,currency:'gbp',country:'GB',delivery_note:'Contact community staff in Discord with your order reference. Delivery is arranged within 24 hours.',refund_policy:'Contact community staff before delivery to request a refund. This demo does not collect payments.'},payments:{configured:true,connected:false,charges_enabled:false},product_limit:25,products:[],orders:[]};
+  ensureDemoGrowth(data.community.store);
   data.community.store.categories??=[];data.community.store.jobs??=[];
   for(const p of data.community.store.products){p.image_url??='';p.category_id??=null;p.sort_order??=0;p.delivery_actions??=[];}
   data.community.store.product_limit=({scout:5,tribe:25,cluster:100})[data.workspace.plan]||5;
@@ -17,6 +19,7 @@ export function ensureDemoCommunity(data){
 export function demoCommunityRequest(data,path,method='GET',body){
   const requested=path.match(/^\/public\/communities\/([^/]+)/);if(requested&&data.community?.site.slug!==requested[1]){const entry=Object.entries(data.workspace_snapshots||{}).find(([,value])=>value.community?.site.slug===requested[1]);if(entry){const scoped={...data,...structuredClone(entry[1]),workspace_snapshots:{}};const result=demoCommunityRequest(scoped,path,method,body);data.workspace_snapshots[entry[0]]=Object.fromEntries(Object.entries(scoped).filter(([key])=>!['user','plans','workspaces','workspace_snapshots'].includes(key)));return result;}}
   const c=ensureDemoCommunity(data),now=Date.now(),id=()=>crypto.randomUUID(),user=data.user;
+  const growth=demoStoreGrowthRequest(data,path,method,body);if(growth!==undefined)return growth;
   const events=()=>c.events.map(e=>({...e,attendees:c.rsvps.filter(r=>r.event_id===e.id).length,attending:c.rsvps.some(r=>r.event_id===e.id&&r.user_id===user.id)}));
   if(path==='/community')return{site:c.site,posts:c.posts,events:events()};
   if(path==='/community/site-builder'){if(method==='GET')return c.design;c.design.draft=structuredClone(body);return c.design;}
@@ -55,7 +58,7 @@ export function demoCommunityRequest(data,path,method='GET',body){
   if(match[2].startsWith('/store')){
     const store=c.store,suffix=match[2].slice(6),orders=()=>store.orders.filter(o=>o.user_id===user.id);
     if(suffix==='/orders')return orders();
-    if(!suffix){if(!store.settings.enabled)throw new Error('This community store is closed.');return{...store.settings,categories:store.categories,discord_connected:true,products:store.products.slice(0,store.product_limit).filter(p=>p.published).map(p=>({id:p.id,title:p.title,description:p.description,price:p.price,game:p.game,image_url:p.image_url,category_id:p.category_id,sort_order:p.sort_order,created_at:p.created_at,category_name:store.categories.find(c=>c.id===p.category_id)?.name||'',delivery:publicDelivery(parseActions(p.delivery_actions))})),orders:orders(),checkout_available:store.payments.charges_enabled};}
+    if(!suffix){if(!store.settings.enabled)throw new Error('This community store is closed.');return decorateDemoStore(data,{...store.settings,categories:store.categories,discord_connected:true,products:store.products.slice(0,store.product_limit).filter(p=>p.published).map(p=>({id:p.id,title:p.title,description:p.description,price:p.price,game:p.game,image_url:p.image_url,category_id:p.category_id,sort_order:p.sort_order,created_at:p.created_at,category_name:store.categories.find(c=>c.id===p.category_id)?.name||'',delivery:publicDelivery(parseActions(p.delivery_actions))})),orders:orders(),checkout_available:store.payments.charges_enabled||store.products.some(p=>p.published&&p.price===0)});}
     if(suffix==='/checkout'){if(!store.settings.enabled||!store.payments.charges_enabled)throw new Error('The store is not accepting payments.');const existing=store.orders.find(o=>o.id===body.request_id);if(existing)return{order_id:existing.id,demo:true};const p=store.products.slice(0,store.product_limit).find(p=>p.id===body.product_id&&p.published);if(!p)throw new Error('Product unavailable.');const delivery=publicDelivery(parseActions(p.delivery_actions));if(delivery.requires_identifier)deliveryIdentifier(body.identifier,delivery.identifier_kind);const o={id:body.request_id,user_id:user.id,buyer:user.name,title:p.title,description:p.description,game:p.game,identifier:body.identifier,amount:p.price,image_url:p.image_url,category_name:store.categories.find(c=>c.id===p.category_id)?.name||'',delivery:publicDelivery(parseActions(p.delivery_actions)),currency:store.settings.currency,delivery_note:store.settings.delivery_note,refund_policy:store.settings.refund_policy,payment_status:'paid',fulfillment_status:'pending',fulfillment_note:'',created_at:now};if(o.delivery.automatic){o.fulfillment_status='fulfilled';o.fulfillment_note='Simulated purchase actions completed. No real command or role change was made.';o.fulfilled_at=now;for(const [position,a]of parseActions(p.delivery_actions).entries())store.jobs.push({id:id(),order_id:o.id,position,type:a.type,status:'succeeded',detail:'Simulated '+a.type+' action.',attempts:1});}store.orders.unshift(o);return{order_id:o.id,demo:true};}
     if(/^\/orders\/[^/]+\/refresh$/.test(suffix)){const o=orders().find(o=>o.id===suffix.split('/')[2]);if(!o)throw new Error('Order not found.');return o;}
   }
