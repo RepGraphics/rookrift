@@ -134,6 +134,8 @@ Back up PostgreSQL before migration 18. It adds the SMTP outbox and expiring pas
 
 Platform administrators can configure SMTP, enable transactional notifications and send a test to their own account in **Global settings → Email & SMTP**. These encrypted settings apply immediately and override SMTP environment defaults. Delivery requires actual provider credentials and a permitted sender. Sales notifications default off and currently cover verified Stripe membership invoices and Stripe Connect store payments. See [email and authentication](EMAIL-AND-AUTHENTICATION.md) for settings, retries, retention and provider limitations.
 
+Version 0.21.1 adds **Check connection (no email)** in the same screen. Run it after saving to test DNS, connection, TLS and authentication from the Dokploy application container. A STARTTLS rejection before login is a relay capability/security-mode issue. Prefer a verified TLS endpoint; automatic STARTTLS compatibility permits unencrypted credentials and mail and requires explicit acknowledgement. Rebuild/redeploy the application for these controls; there is no database migration, and the update does not change saved SMTP security settings.
+
 The sign-in page now verifies email/password before displaying an authenticator code prompt. Existing authenticator accounts retain their secrets. Password recovery is available at `/forgot-password`; links last one hour and a successful reset revokes sessions and pending sign-in challenges.
 
 ## Release 0.13.1 account pictures

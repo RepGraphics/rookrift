@@ -654,6 +654,7 @@ export function createApp({
   app.get('/api/platform/bootstrap', async (req,res)=>res.set('Cache-Control','no-store').json({...await platformAdmin.overview(req.user),csrf:req.auth.csrf}));
   app.patch('/api/platform/settings', async (req,res)=>res.json(await platformAdmin.updateSettings(req.user,req.body)));
   app.get('/api/platform/email',async(req,res)=>res.json(await email.settings()));
+  app.post('/api/platform/email/verify',rateLimit({windowMs:900000,limit:5,standardHeaders:'draft-8',legacyHeaders:false,handler:(_req,res)=>res.status(429).json({error:'Too many connection checks. Wait 15 minutes before checking again.'})}),async(req,res)=>res.json(await email.verify()));
   app.patch('/api/platform/email',async(req,res)=>res.json(await db.transaction(async()=>{const result=await email.save(req.body);await recordPlatformActivity(db,req.user,'Email delivery settings updated');return result;})));
   app.post('/api/platform/email/test',rateLimit({windowMs:900000,limit:5,standardHeaders:'draft-8',legacyHeaders:false,handler:(_req,res)=>res.status(429).json({error:'Too many test emails. Wait 15 minutes before requesting another test.'})}),async(req,res)=>res.status(202).json(await email.test(req.user.id)));
   app.post('/api/platform/email/retry',async(req,res)=>res.json(await email.retryFailed()));
