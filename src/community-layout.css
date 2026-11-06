@@ -1,0 +1,117 @@
+/* Public community layout. All colours and corners follow the owner's theme. */
+.community-portal{font-size:14px}
+.community-skip{position:fixed;left:20px;top:-100px;padding:12px 18px;background:var(--primary);color:var(--on-primary);z-index:100;border-radius:var(--radius)}
+.community-skip:focus{top:12px}
+.community-portal :is(button,a,input,select,summary):focus-visible{outline:2px solid var(--accent);outline-offset:4px}
+.portal-shell-header{background:var(--bg);border-bottom:1px solid var(--line)}
+.portal-shell-header .portal-header{border:0;padding-block:22px;max-width:1320px}
+.portal-header-actions{gap:14px}
+.portal-navigation-wrap{max-width:1320px;margin:auto;padding:0 30px}
+.portal-navigation{display:flex;gap:5px;overflow-x:auto;scrollbar-width:thin;padding:0 0 14px}
+.portal-navigation button{display:inline-flex;flex-shrink:0;align-items:center;gap:9px;min-height:42px;padding:11px 15px;color:var(--muted);background:transparent;border:1px solid transparent;border-radius:var(--radius);font-size:12px;font-weight:500;white-space:nowrap}
+.portal-navigation button svg{flex-shrink:0}
+.portal-navigation button:hover{background:var(--surface-hover);color:var(--heading)}
+.portal-navigation button.selected{background:var(--accent-soft);border-color:var(--line);color:var(--accent)}
+.portal-nav-toggle{display:none;align-items:center;justify-content:center;gap:7px;min-height:38px;border:1px solid var(--line);border-radius:var(--radius);background:var(--panel);color:var(--text);padding:8px 11px;font-size:12px}
+.community-portal .portal-main{max-width:1320px;padding-inline:30px}
+.community-portal[data-content-width=compact] .portal-navigation-wrap,.community-portal[data-content-width=compact] .portal-header,.community-portal[data-content-width=compact] .portal-main{max-width:1060px}
+.portal-page-body{min-height:48vh}
+.portal-page-body:focus{outline:none}
+.community-portal .portal-hero{padding:66px 56px 40px;margin:32px 0 40px;min-height:340px}
+.community-portal .portal-hero-copy{max-width:850px}
+.community-portal .portal-hero h1{font-size:clamp(38px,4.5vw,64px);line-height:1.08;letter-spacing:-2px;max-width:850px;margin:18px 0 22px}
+.community-portal .portal-hero-copy>p{font-size:16px;line-height:1.85;max-width:650px}
+.community-portal .portal-hero .button-row{gap:12px;flex-wrap:wrap}
+.community-portal .portal-hero .button{min-height:43px;padding:11px 17px}
+.community-portal .portal-hero[data-hero-size=compact]{min-height:240px;padding:34px 38px 28px}
+.community-portal .portal-hero[data-hero-size=large]{min-height:440px;padding-top:86px;padding-bottom:50px}
+.community-portal .portal-stats{gap:50px;margin-top:30px;padding-top:25px;font-size:12px}
+.community-portal .portal-stats strong{font-size:25px;letter-spacing:-.6px;margin-bottom:6px}
+.portal-home-layout{display:grid;grid-template-columns:minmax(0,1fr) 310px;gap:34px;align-items:start}
+.portal-page-content,.portal-inner-layout{min-width:0}
+.portal-home-layout .site-block:first-child{margin-top:0}
+.portal-home-layout .site-block{margin-bottom:34px}
+.portal-home-layout .portal-server-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+.portal-home-layout .site-block>h2{font-size:25px;letter-spacing:-.7px}
+.community-portal .community-prose{line-height:1.9;overflow-wrap:anywhere}
+.portal-home-aside{display:grid;gap:20px;min-width:0}
+.portal-aside-card{padding:25px}
+.portal-aside-card h2{font-size:20px;letter-spacing:-.5px;line-height:1.45;margin:12px 0 10px}
+.portal-aside-card>p{font-size:12px;line-height:1.8;color:var(--muted);margin:0 0 20px}
+.portal-shortcuts{display:grid;margin-top:20px}
+.portal-shortcuts>button{display:flex;align-items:center;gap:12px;padding:15px 0;background:transparent;color:var(--text);border:0;border-top:1px solid var(--line);text-align:left;width:100%}
+.portal-shortcuts>button>span:first-child{display:grid;place-items:center;flex:0 0 36px;height:36px;background:var(--surface-alt);border:1px solid var(--line);border-radius:var(--radius);color:var(--accent)}
+.portal-shortcuts>button>span:nth-child(2){flex:1;min-width:0}
+.portal-shortcuts strong{display:block;font-size:12px;line-height:1.5;font-weight:600}
+.portal-shortcuts small{display:block;font-size:11px;line-height:1.65;color:var(--muted);margin-top:4px}
+.portal-shortcuts>button>svg{flex-shrink:0;color:var(--muted)}
+.portal-shortcuts>button:hover strong{color:var(--accent)}
+.portal-aside-link{display:inline-flex;align-items:center;gap:9px;flex-wrap:wrap;background:transparent;border:0;color:var(--accent);font-size:12px;font-weight:500;line-height:1.7;padding:0;margin-top:12px;text-align:left}
+.portal-aside-event-icon{display:grid;place-items:center;width:44px;height:44px;background:var(--accent-soft);color:var(--accent);border:1px solid var(--line);border-radius:var(--radius);margin-top:24px}
+.portal-page-heading{padding:35px 0 30px;border-bottom:1px solid var(--line);margin-bottom:32px}
+.portal-page-heading h1{font-size:clamp(30px,3.8vw,44px);line-height:1.2;letter-spacing:-1.2px;margin:23px 0 12px;overflow-wrap:anywhere}
+.portal-page-heading>p{max-width:700px;color:var(--muted);line-height:1.8;margin:0;font-size:14px}
+.portal-breadcrumb{display:flex;align-items:center;gap:8px;max-width:100%;background:transparent;border:0;padding:0;color:var(--muted);font-size:12px;text-align:left;line-height:1.7;overflow-wrap:anywhere}
+.portal-breadcrumb svg{flex-shrink:0}
+.portal-breadcrumb:hover{color:var(--accent)}
+.portal-page-heading:has(+.portal-inner-layout .portal-account-intro){padding-bottom:0;border:0;margin-bottom:0}
+.portal-directory-tools{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(130px,.8fr) minmax(130px,.8fr);gap:16px;margin:25px 0}
+.portal-directory-tools .field{margin:0}
+.portal-directory-tools input,.portal-directory-tools select{width:100%;min-width:0;min-height:44px}
+.portal-result-count{font-size:12px;line-height:1.7;color:var(--muted);flex-shrink:0}
+.community-portal .portal-server-grid{gap:22px}
+.community-server-card{display:flex;flex-direction:column;align-items:stretch;min-width:0;padding:24px!important}
+.community-server-card:hover{transform:none}
+.community-server-card .community-server-top{display:flex;justify-content:space-between;gap:15px;margin:0 0 25px}
+.community-game-icon{display:grid;place-items:center;width:42px;height:42px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface-alt);color:var(--accent)}
+.community-server-top .status{font-size:11px}
+.community-server-card h3{font-size:20px;line-height:1.45;letter-spacing:-.4px;margin:11px 0 8px}
+.community-server-card .eyebrow{font-size:10px;letter-spacing:1.3px}
+.community-server-world{font-size:12px;line-height:1.8;color:var(--muted);margin:0 0 22px!important}
+.community-server-world>span{display:block;font-size:11px;margin-top:4px}
+.community-server-card .community-server-players{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:11px;margin:auto 0 11px;padding-top:10px;color:var(--muted)}
+.community-server-players strong{font-size:17px!important;color:var(--heading);white-space:nowrap}
+.community-server-players strong small{font-size:12px;font-weight:400}
+.community-slot-meter{display:block;width:100%;height:5px;appearance:none;border:0;border-radius:20px;overflow:hidden;background:var(--surface-hover);accent-color:var(--accent);margin-bottom:5px}
+.community-slot-meter::-webkit-progress-bar{background:var(--surface-hover)}
+.community-slot-meter::-webkit-progress-value{background:var(--accent);border-radius:20px}
+.community-slot-meter::-moz-progress-bar{background:var(--accent);border-radius:20px}
+.community-server-card .portal-connect{flex-wrap:wrap;gap:12px;padding-top:18px;margin:19px 0 0}
+.community-server-card .portal-connect>.button-row{margin:0;gap:7px}
+.community-server-card .portal-connect .icon-button{border:1px solid var(--line);border-radius:var(--radius);min-width:34px;min-height:34px}
+.community-server-card .community-server-checked{font-size:10px;line-height:1.8;margin-top:18px}
+.community-server-feedback{font-size:11px;line-height:1.7;color:var(--accent);margin-top:14px}
+.community-portal .portal-content{max-width:900px}
+.community-portal .portal-post{padding:30px;margin:22px 0}
+.community-portal .portal-post h3{font-size:24px;letter-spacing:-.6px;line-height:1.4}
+.community-portal .portal-post>.community-prose{font-size:14px;line-height:1.95}
+.community-portal .portal-post>small{font-size:11px;color:var(--muted)}
+.community-portal .portal-notice{margin:0 0 28px;padding:15px 18px;border-left:3px solid var(--accent)}
+.community-portal .portal-footer{padding:32px 0;margin-top:60px;gap:24px;align-items:center;font-size:11px}
+.portal-footer-brand{display:grid;gap:7px;min-width:0}
+.portal-footer-brand strong{font-family:var(--community-font);font-size:14px;color:var(--heading);overflow-wrap:anywhere}
+.portal-footer-brand>span{font-size:10px}
+.community-portal .store-catalog{grid-template-columns:repeat(3,minmax(0,1fr));gap:24px}
+.community-portal .store-product{overflow:hidden;border-radius:var(--radius)}
+.community-portal .store-product-image,.community-portal .store-product-placeholder{aspect-ratio:16/10;object-fit:cover}
+.community-portal .store-product h3{font-size:20px;letter-spacing:-.3px;line-height:1.4}
+.community-portal .store-product-content{padding:24px}
+.community-portal .store-product-content>.community-prose{font-size:13px;line-height:1.85;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+.community-portal .store-product-content>.button{width:100%;justify-content:center;min-height:44px}
+.community-portal .store-price{font-size:24px}
+.portal-store-guide{padding:20px 24px;margin:24px 0;border:1px solid var(--line);border-radius:var(--radius);background:var(--panel);font-size:13px;line-height:1.85}
+.portal-store-guide>summary{display:flex;align-items:center;gap:10px;cursor:pointer;font-weight:600;color:var(--heading)}
+.portal-store-guide>summary::after{content:'+';margin-left:auto;font-size:20px;font-weight:400;color:var(--muted)}
+.portal-store-guide[open]>summary::after{content:'−'}
+.portal-store-guide>p{margin-top:18px;color:var(--muted)}
+.portal-store-guide details{padding-top:15px;border-top:1px solid var(--line);margin-top:18px}
+.community-portal .store-signin-note{display:flex;justify-content:space-between;align-items:center;gap:24px;padding:22px 25px}
+.community-portal .store-signin-note>div{min-width:0}
+.community-portal .store-signin-note h3{font-size:16px;margin:0 0 8px}
+.community-portal .store-signin-note p{font-size:12px;color:var(--muted);line-height:1.8;margin:0}
+.community-portal .store-signin-note>.button{flex-shrink:0}
+@media(min-width:841px){.portal-navigation{display:flex!important}}
+@media(max-width:1080px){.portal-home-layout{grid-template-columns:minmax(0,1fr) 280px;gap:24px}.community-portal .portal-server-grid,.community-portal .store-catalog{grid-template-columns:repeat(2,minmax(0,1fr))}.portal-home-layout .portal-server-grid{grid-template-columns:minmax(0,1fr)}.portal-aside-card{padding:22px}.portal-header-actions{gap:10px}.community-portal .portal-hero{padding-left:40px;padding-right:40px}}
+@media(max-width:840px){.portal-nav-toggle{display:flex}.portal-navigation{display:none;grid-template-columns:repeat(2,minmax(0,1fr));padding:4px 0 18px;gap:7px;overflow:visible}.portal-navigation.is-open{display:grid}.portal-navigation button{white-space:normal;text-align:left;padding:12px;line-height:1.6}.portal-navigation button span{min-width:0;overflow-wrap:anywhere}.portal-home-layout{grid-template-columns:minmax(0,1fr)}.portal-home-layout .portal-server-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.portal-home-aside{grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}.portal-header-actions .portal-member-button>span{display:none}.community-portal .store-signin-note{align-items:flex-start;flex-direction:column;gap:15px}.community-portal .portal-hero h1{font-size:46px;letter-spacing:-1.5px}}
+@media(max-width:560px){.portal-shell-header .portal-header,.community-portal .portal-main,.portal-navigation-wrap{padding-left:20px;padding-right:20px}.portal-shell-header .portal-header{gap:12px;padding-top:17px;padding-bottom:17px}.portal-brand-name strong{font-size:14px}.portal-brand-name small{font-size:8px;letter-spacing:1px}.portal-brand{gap:9px}.portal-brand img,.portal-brand .community-monogram{width:38px;height:38px;flex-basis:38px;font-size:14px}.portal-header-actions{gap:8px}.portal-header-actions .community-theme-toggle{display:none}.portal-nav-toggle{width:35px;min-height:35px;padding:7px}.portal-nav-toggle>span{display:none}.portal-header-actions>.button{font-size:11px;padding:9px 11px;min-height:36px}.community-portal .portal-hero,.community-portal .portal-hero[data-hero-size=compact]{padding:34px 24px 26px;margin:22px 0 28px;min-height:0}.community-portal .portal-hero[data-hero-size=large]{padding-top:65px;padding-bottom:38px;min-height:340px}.community-portal .portal-hero h1{font-size:36px;letter-spacing:-1.1px}.community-portal .portal-hero-copy>p{font-size:14px;line-height:1.85}.community-portal .portal-stats{gap:20px 28px;font-size:10px;padding-top:21px}.community-portal .portal-stats strong{font-size:21px}.community-portal .portal-hero .button{font-size:11px;padding:10px 12px}.portal-home-aside,.community-portal .portal-server-grid,.portal-home-layout .portal-server-grid,.community-portal .store-catalog,.portal-directory-tools{grid-template-columns:minmax(0,1fr)}.portal-page-heading{padding-top:27px;margin-bottom:27px}.portal-page-heading h1{font-size:32px}.portal-page-heading>p{font-size:13px}.portal-directory-tools{gap:13px;margin:20px 0}.community-portal .section-heading{gap:15px;flex-wrap:wrap}.portal-result-count{font-size:11px}.community-server-card{padding:22px!important}.community-portal .portal-post{padding:23px}.community-portal .portal-post h3{font-size:21px}.community-portal .portal-footer{align-items:flex-start;flex-direction:column;margin-top:42px}.community-portal .store-product-content{padding:22px}.portal-store-guide{padding:18px 20px}.portal-header-actions .portal-member-button svg:last-child{display:none}}
+@media(prefers-reduced-motion:reduce){.community-server-card{transition:none}.community-portal *{scroll-behavior:auto!important}}
