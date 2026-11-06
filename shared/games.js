@@ -1,7 +1,7 @@
 const ark=['status','players','chat','save','broadcast','direct','kick','ban','unban','purchase'];
 export const GAMES={
- asa:{id:'asa',name:'ARK: Survival Ascended',short:'ARK Ascended',protocol:'source-rcon',port:27020,available:true,actions:ark,identity:'eos',linking:true,configuration:true},
- ase:{id:'ase',name:'ARK: Survival Evolved',short:'ARK Evolved',protocol:'source-rcon',port:27020,available:true,actions:ark,identity:'steam',linking:true,configuration:true},
+ asa:{id:'asa',name:'ARK: Survival Ascended',short:'ARK Survival Ascended',protocol:'source-rcon',port:27020,available:true,actions:ark,identity:'eos',linking:true,configuration:true},
+ ase:{id:'ase',name:'ARK: Survival Evolved',short:'ARK Survival Evolved',protocol:'source-rcon',port:27020,available:true,actions:ark,identity:'steam',linking:true,configuration:true},
  minecraft:{id:'minecraft',name:'Minecraft Java',short:'Minecraft Java',protocol:'source-rcon',port:25575,available:true,beta:true,actions:['status','players','save','broadcast','direct','kick','ban','unban','purchase'],identity:'minecraft',linking:false,configuration:false},
  dayz:{id:'dayz',name:'DayZ',short:'DayZ',protocol:'battleye',port:2306,available:true,beta:true,actions:['status','players','broadcast','ban','purchase'],identity:'battleye',linking:false,configuration:false}
 };
