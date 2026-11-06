@@ -3,9 +3,10 @@ import {z} from 'zod';
 import {hash} from './crypto.js';
 import {effectivePlan,assertCapacity} from './plans.js';
 import {audit} from './db.js';
-import {parsePatch,previewPatch,configPath} from '../shared/config-ini.js';
+import {previewPatch,configPath} from '../shared/config-ini.js';
+import {parseConfigPatch,managedConfigGame} from '../shared/config-templates.js';
 const fail=(message,status=400)=>{throw Object.assign(new Error(message),{status});};
-const schema=z.object({name:z.string().trim().min(2).max(60),game:z.enum(['asa','ase']),filename:z.enum(['Game.ini','GameUserSettings.ini']),body:z.string().max(16000),summary:z.string().trim().max(200).default('')}).strict();
+const schema=z.object({name:z.string().trim().min(2).max(60),game:z.enum(['asa','ase','minecraft','dayz']),filename:z.enum(['Game.ini','GameUserSettings.ini','server.properties','serverDZ.cfg']),body:z.string().max(16000),summary:z.string().trim().max(200).default('')}).strict();
 const targetSchema=z.object({server_id:z.string().uuid(),platform:z.enum(['LinuxServer','WindowsServer'])}).strict();
 const applySchema=targetSchema.extend({preview_hash:z.string().regex(/^[a-f0-9]{64}$/),revision:z.number().int().positive(),confirmation:z.string().max(60)}).strict();
 const applicationFields='id,workspace_id,server_id,template_id,template_name,revision,filename,path,status,detail,actor,created_at,updated_at';
@@ -13,13 +14,13 @@ export function createConfigLibrary(db,vault,service,operations){
   const owned=async(table,workspace,id)=>{const row=await db.prepare(`SELECT * FROM ${table} WHERE workspace_id=? AND id=?`).get(workspace,id);if(!row)fail('Configuration record not found.',404);return row;};
   const template=async(ws,id)=>{const row=await owned('config_templates',ws,id),version=await db.prepare('SELECT * FROM config_versions WHERE template_id=? AND revision=?').get(id,row.current_revision);return{...row,body:version.body,summary:version.summary};};
   const read=async(host,path)=>{const content=await host.read(path);if(typeof content!=='string'||content.includes('\0')||content.includes('\uFFFD')||Buffer.byteLength(content)>262144)fail('The target file must be UTF-8 text and at most 256 KiB. Use your panel for other files.');return content;};
-  async function target(ws,tpl,input){const server=await service.getServer(ws,input.server_id);if(server.game!==tpl.game)fail('Choose a server running the same ARK game as this template.');return{server,path:configPath(input.platform,tpl.filename)};}
+  async function target(ws,tpl,input){if(!managedConfigGame(tpl.game))fail('This game uses manual configuration exports. Merge the downloaded patch through your hosting panel.');const server=await service.getServer(ws,input.server_id);if(server.game!==tpl.game)fail('Choose a server running the same ARK game as this template.');return{server,path:configPath(input.platform,tpl.filename)};}
   const fingerprint=(host,path)=>hash(host.target+'\0'+path);
   const previewHash=(source,tpl,host,path)=>hash(source+'\0'+tpl.id+'\0'+tpl.current_revision+'\0'+fingerprint(host,path));
   return{
     async view(ws,scope=null){const workspace=await db.prepare('SELECT * FROM workspaces WHERE id=?').get(ws);return{limit:effectivePlan(workspace).templates,templates:await db.prepare('SELECT t.*,v.body,v.summary FROM config_templates t JOIN config_versions v ON v.template_id=t.id AND v.revision=t.current_revision WHERE workspace_id=? ORDER BY created_at,id').all(ws),applications:(await db.prepare(`SELECT ${applicationFields} FROM config_applications WHERE workspace_id=? ORDER BY created_at DESC LIMIT 100`).all(ws)).filter(row=>scope===null||scope.includes(row.server_id))};},
     async versions(ws,id){await owned('config_templates',ws,id);return db.prepare('SELECT * FROM config_versions WHERE template_id=? ORDER BY revision DESC').all(id);},
-    async save(ws,id,input,actor){const value=schema.parse(input);parsePatch(value.body);return db.withWorkspaceLock(ws,async()=>{
+    async save(ws,id,input,actor){const value=schema.parse(input);parseConfigPatch(value.game,value.filename,value.body);return db.withWorkspaceLock(ws,async()=>{
       const now=Date.now();let revision=1;if(id){const old=await owned('config_templates',ws,id);if(old.game!==value.game||old.filename!==value.filename)fail('Create a separate template to change game or filename.');revision=old.current_revision+1;await db.prepare('UPDATE config_templates SET name=?,current_revision=?,updated_at=? WHERE id=?').run(value.name,revision,now,id);}
       else{const workspace=await db.prepare('SELECT * FROM workspaces WHERE id=?').get(ws);assertCapacity(workspace,(await db.prepare('SELECT count(*) AS n FROM config_templates WHERE workspace_id=?').get(ws)).n,'templates');id=randomUUID();await db.prepare('INSERT INTO config_templates VALUES(?,?,?,?,?,?,?,?)').run(id,ws,value.name,value.game,value.filename,revision,now,now);}
       await db.prepare('INSERT INTO config_versions VALUES(?,?,?,?,?,?,?)').run(randomUUID(),id,revision,value.body,value.summary,actor.name,now);

@@ -179,3 +179,7 @@ Back up PostgreSQL before schema 25 and keep one stop-first application replica.
 ## Release 0.23 game task templates
 
 Rebuild the application for the [game-specific template library](TASK-TEMPLATES.md) in Automations and Workflows. No database migration, dependencies or new environment settings are required; schema 25 is retained. Templates create editable disabled drafts and use the existing native adapters and verified provider capabilities. Existing tasks retain their current state and schedule.
+
+## Release 0.24 configuration presets
+
+Back up PostgreSQL before upgrading to schema 26 and retain the encryption key. The [configuration toolkit](CONFIGURATION.md) adds presets and guided tools for all four games, with manual Minecraft/DayZ exports. Migration 26 preserves existing ARK records and expands valid game/file pairs. No new dependencies or environment variables are required. Keep one stop-first application replica. Rollback to 0.23 requires its schema-25 backup.

@@ -6,6 +6,10 @@ The hosted preview demonstrates every workflow using local sample data. On a liv
 
 Open **Automations** or **Workflows**, then browse the [game-specific template library](TASK-TEMPLATES.md). Choose ARK Ascended, ARK Evolved, Minecraft Java or DayZ, filter by category, and select a target server. Saves, announcements, event reminders, provider backups, restart countdowns and connection checks open as editable disabled drafts. Requirements are shown before selection; unsupported host or game actions cannot be selected. Review the schedule, messages and steps before saving and enabling.
 
+## Build reusable game configurations
+
+Open **Configuration > Preset library** for ARK, Minecraft Java and DayZ examples. The [configuration toolkit](CONFIGURATION.md) provides friendly setting controls, a text editor, local file comparison, recognised-setting imports, patch copying/downloading and independent duplication. Minecraft/DayZ use manual patch exports; ARK retains guarded stopped-server host deployment. Saved copies share the existing plan allowance and revision history.
+
 ## Organise and edit a fleet
 
 Open **Game servers**. Use the edit icon on a card, or **Manage → Edit connection**, to change its name, game, map label, capacity, RCON host/port, and server group. Group names are optional and shared across both ARK games. Filter by group, game, connection status, or maintenance, and sort by name, player count, or connection status.
